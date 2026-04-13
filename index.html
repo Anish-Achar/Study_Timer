@@ -753,6 +753,22 @@ body.size-lg-full .lg-exit-hint:hover {
 }
 #btn-export:hover { background:var(--mid); }
 
+#btn-export-json {
+  background:rgba(255,255,255,.04); border:1px solid #252525; color:#666;
+  border-radius:8px; padding:8px 16px; font-family:'Outfit',sans-serif;
+  font-size:9px; font-weight:700; letter-spacing:.1em; text-transform:uppercase;
+  cursor:pointer; transition:all .2s; white-space:nowrap; flex-shrink:0;
+}
+#btn-export-json:hover { color:var(--accent); border-color:var(--mid); background:var(--dim); }
+
+#btn-import {
+  background:rgba(255,255,255,.04); border:1px solid #252525; color:#666;
+  border-radius:8px; padding:8px 16px; font-family:'Outfit',sans-serif;
+  font-size:9px; font-weight:700; letter-spacing:.1em; text-transform:uppercase;
+  cursor:pointer; transition:all .2s; white-space:nowrap; flex-shrink:0;
+}
+#btn-import:hover { color:#4ade80; border-color:#166534; background:rgba(74,222,128,.06); }
+
 #btn-add-session {
   background:rgba(255,255,255,.05); border:1px solid #2a2a2a; color:#aaa;
   border-radius:8px; padding:8px 14px; font-family:'Outfit',sans-serif;
@@ -1357,9 +1373,13 @@ canvas.chart-canvas { width:100%; display:block; }
       <button id="btn-back">← Back</button>
       <div class="stats-title">Study Stats</div>
       <button id="btn-add-session">+ Add</button>
+      <button id="btn-import">↑ Import</button>
+      <button id="btn-export-json">↓ Backup</button>
       <button id="btn-export">↓ Export Excel</button>
       <button id="btn-clear-data">✕ Clear Data</button>
     </div>
+    <!-- Hidden file input for import -->
+    <input type="file" id="import-file-input" accept=".json" style="display:none"/>
 
     <!-- Insight cards -->
     <div class="insight-row" id="insight-row"></div>
@@ -2781,6 +2801,95 @@ document.getElementById('btn-clear-data').addEventListener('click', () => {
   if (!confirm('Clear all session data? This cannot be undone.')) return;
   localStorage.removeItem(SK);
   renderStats();
+});
+
+/* ════ JSON BACKUP EXPORT ════ */
+document.getElementById('btn-export-json').addEventListener('click', () => {
+  const sessions = loadSessions();
+  if (!sessions.length) { showToast('No sessions to back up yet.'); return; }
+
+  const payload = {
+    version: 1,
+    exported: new Date().toISOString(),
+    sessions,
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = `study-backup-${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast(`<span class="toast-accent">✓</span> Backup saved — ${sessions.length} sessions`);
+});
+
+/* ════ JSON IMPORT ════ */
+document.getElementById('btn-import').addEventListener('click', () => {
+  document.getElementById('import-file-input').value = '';
+  document.getElementById('import-file-input').click();
+});
+
+document.getElementById('import-file-input').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = ev => {
+    try {
+      const raw = JSON.parse(ev.target.result);
+
+      // Support both raw array and our { version, sessions } envelope
+      const incoming = Array.isArray(raw) ? raw : (raw.sessions || []);
+
+      if (!incoming.length) { showToast('No sessions found in file.'); return; }
+
+      // Validate shape — every entry needs at least ms + ts
+      const valid = incoming.filter(s =>
+        typeof s.ms === 'number' && s.ms > 0 &&
+        typeof s.ts === 'number'
+      );
+      if (!valid.length) { showToast('File format not recognised.'); return; }
+
+      const existing = loadSessions();
+
+      // Deduplicate by timestamp — don't double-import
+      const existingTs = new Set(existing.map(s => s.ts));
+      const fresh = valid.filter(s => !existingTs.has(s.ts));
+
+      if (!fresh.length) {
+        showToast('All sessions already imported — nothing new.');
+        return;
+      }
+
+      const mode = existing.length
+        ? confirm(
+            `Found ${fresh.length} new session${fresh.length > 1 ? 's' : ''} ` +
+            `(${valid.length - fresh.length} already exist).\n\n` +
+            `Merge with your ${existing.length} current session${existing.length > 1 ? 's' : ''}?\n\n` +
+            `OK = Merge    Cancel = Replace everything`
+          )
+        : true; // nothing existing — just import
+
+      let merged;
+      if (mode) {
+        // Merge: combine + sort newest-first
+        merged = [...existing, ...fresh].sort((a, b) => b.ts - a.ts).slice(0, 1000);
+      } else {
+        // Replace
+        if (!confirm('This will delete all current sessions. Are you sure?')) return;
+        merged = fresh.sort((a, b) => b.ts - a.ts).slice(0, 1000);
+      }
+
+      localStorage.setItem(SK, JSON.stringify(merged));
+      renderStats();
+      showToast(
+        `<span class="toast-accent">✓</span> Imported ${fresh.length} session${fresh.length > 1 ? 's' : ''}`
+      );
+    } catch {
+      showToast('Could not read file — make sure it\'s a valid backup JSON.');
+    }
+  };
+  reader.readAsText(file);
 });
 
 /* ════════════════════════════════════════════
