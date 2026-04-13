@@ -1056,6 +1056,144 @@ canvas.chart-canvas { width:100%; display:block; }
 }
 #manual-scrim.open { opacity: 1; pointer-events: auto; }
 
+/* ═══════════════════════════════════════════
+   SETTINGS PANEL
+   ─────────────────────────────────────────── */
+#settings-panel {
+  position: fixed;
+  top: 0; right: 0; bottom: 0;
+  width: min(460px, 100vw);
+  z-index: 40;
+  background: #09090c;
+  border-left: 1px solid #1a1a1a;
+  display: flex; flex-direction: column;
+  transform: translateX(100%);
+  transition: transform .38s cubic-bezier(.4,0,.2,1);
+  overflow-y: auto;
+}
+#settings-panel.open { transform: translateX(0); }
+#settings-panel::-webkit-scrollbar { width: 2px; }
+#settings-panel::-webkit-scrollbar-thumb { background: #1a1a1a; }
+
+#settings-scrim {
+  position: fixed; inset: 0; z-index: 39;
+  background: rgba(0,0,0,.5);
+  opacity: 0; pointer-events: none;
+  transition: opacity .38s ease;
+  backdrop-filter: blur(2px);
+}
+#settings-scrim.open { opacity: 1; pointer-events: auto; }
+
+.sp-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 1.6rem 1.5rem 1.2rem;
+  border-bottom: 1px solid #141414;
+  flex-shrink: 0;
+}
+.sp-title { font-size: 16px; font-weight: 800; color: #fff; letter-spacing: -.02em; }
+#sp-close {
+  background: rgba(255,255,255,.05); border: 1px solid #222;
+  color: #888; border-radius: 8px; padding: 5px 12px;
+  font-family: 'Outfit', sans-serif; font-size: 10px;
+  font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+  cursor: pointer; transition: all .15s;
+}
+#sp-close:hover { color: #fff; border-color: #333; }
+
+.sp-body { padding: 1.4rem 1.5rem; display: flex; flex-direction: column; gap: 1.8rem; }
+
+.sp-section-title {
+  font-size: 8px; letter-spacing: .2em; text-transform: uppercase;
+  color: #444; font-weight: 700; margin-bottom: .7rem;
+  padding-bottom: 6px; border-bottom: 1px solid #141414;
+}
+
+/* Subject list */
+.sp-subject-list { display: flex; flex-direction: column; gap: 6px; }
+.sp-subj-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px; border-radius: 9px;
+  background: rgba(255,255,255,.03); border: 1px solid #1a1a1a;
+  transition: border-color .15s;
+}
+.sp-subj-row:hover { border-color: #282828; }
+.sp-subj-swatch {
+  width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0;
+  cursor: pointer; border: 2px solid transparent;
+  transition: transform .15s, border-color .15s;
+}
+.sp-subj-swatch:hover { transform: scale(1.2); }
+.sp-subj-name {
+  flex: 1; font-size: 11px; font-weight: 600; color: #bbb;
+  font-family: 'Outfit', sans-serif;
+}
+.sp-subj-delete {
+  background: none; border: none; cursor: pointer;
+  color: #2a2a2a; font-size: 14px; padding: 2px 5px;
+  border-radius: 5px; line-height: 1;
+  font-family: 'Outfit', sans-serif;
+  transition: color .13s, background .13s;
+}
+.sp-subj-delete:hover { color: #f87171; background: rgba(248,113,113,.08); }
+
+/* Add subject form */
+.sp-add-form {
+  display: flex; gap: 8px; align-items: center; margin-top: 4px;
+}
+.sp-add-name {
+  flex: 1;
+  background: rgba(255,255,255,.04); border: 1px solid #1e1e1e;
+  border-radius: 8px; color: #fff; font-family: 'Outfit', sans-serif;
+  font-size: 12px; font-weight: 600; padding: 9px 12px;
+  outline: none; transition: border-color .2s;
+}
+.sp-add-name:focus { border-color: var(--mid); }
+.sp-add-name::placeholder { color: #333; }
+.sp-color-pick {
+  width: 36px; height: 36px; border-radius: 8px; border: 1px solid #1e1e1e;
+  background: rgba(255,255,255,.04); padding: 3px; cursor: pointer;
+  overflow: hidden;
+}
+.sp-color-pick::-webkit-color-swatch-wrapper { padding: 0; }
+.sp-color-pick::-webkit-color-swatch { border-radius: 5px; border: none; }
+.sp-add-btn {
+  background: var(--dim); border: 1px solid var(--mid); color: var(--accent);
+  border-radius: 8px; padding: 9px 14px; font-family: 'Outfit', sans-serif;
+  font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+  cursor: pointer; transition: all .15s; white-space: nowrap;
+}
+.sp-add-btn:hover { background: var(--mid); }
+
+/* Toggle setting rows */
+.sp-setting-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px 0; border-bottom: 1px solid #111;
+}
+.sp-setting-row:last-child { border-bottom: none; }
+.sp-setting-label { font-size: 11px; font-weight: 600; color: #aaa; }
+.sp-setting-sub   { font-size: 9px; color: #444; margin-top: 2px; }
+
+/* Toggle switch */
+.sp-toggle {
+  position: relative; width: 36px; height: 20px; flex-shrink: 0;
+}
+.sp-toggle input { opacity: 0; width: 0; height: 0; }
+.sp-toggle-track {
+  position: absolute; inset: 0; border-radius: 10px;
+  background: #1e1e1e; border: 1px solid #2a2a2a;
+  cursor: pointer; transition: background .2s, border-color .2s;
+}
+.sp-toggle input:checked + .sp-toggle-track { background: var(--dim); border-color: var(--mid); }
+.sp-toggle-track::after {
+  content: ''; position: absolute;
+  width: 14px; height: 14px; border-radius: 50%;
+  top: 2px; left: 2px; background: #444;
+  transition: transform .2s, background .2s;
+}
+.sp-toggle input:checked + .sp-toggle-track::after {
+  transform: translateX(16px); background: var(--accent);
+}
+
 </style>
 </head>
 <body class="size-md">
@@ -1177,6 +1315,14 @@ canvas.chart-canvas { width:100%; display:block; }
           <rect x="4.5" y="5" width="3" height="9"  rx="1" fill="currentColor"/>
           <rect x="9"  y="2"  width="3" height="12" rx="1" fill="currentColor"/>
           <rect x="13.5" y="0" width="3" height="14" rx="1" fill="currentColor"/>
+        </svg>
+      </button>
+
+      <!-- Settings icon button -->
+      <button class="stats-icon-btn" id="btn-settings" aria-label="Settings">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="8" cy="8" r="2.2" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M8 1v1.5M8 13.5V15M15 8h-1.5M2.5 8H1M12.95 3.05l-1.06 1.06M4.11 11.89l-1.06 1.06M12.95 12.95l-1.06-1.06M4.11 4.11L3.05 3.05" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
         </svg>
       </button>
 
@@ -1308,9 +1454,100 @@ canvas.chart-canvas { width:100%; display:block; }
   </div>
 </div>
 
+<!-- ════════════════════════════════════════════
+     SETTINGS PANEL
+     ════════════════════════════════════════════ -->
+<div id="settings-scrim"></div>
+<div id="settings-panel">
+  <div class="sp-header">
+    <div class="sp-title">Settings</div>
+    <button id="sp-close">✕ Close</button>
+  </div>
+  <div class="sp-body">
+
+    <!-- Subjects -->
+    <div>
+      <div class="sp-section-title">Subjects</div>
+      <div class="sp-subject-list" id="sp-subject-list"></div>
+      <div class="sp-add-form" style="margin-top:10px">
+        <input class="sp-add-name" id="sp-add-name" type="text" placeholder="Subject name" maxlength="24"/>
+        <input class="sp-color-pick" id="sp-add-color" type="color" value="#a855f7"/>
+        <button class="sp-add-btn" id="sp-add-btn">Add</button>
+      </div>
+    </div>
+
+    <!-- Timer behaviour -->
+    <div>
+      <div class="sp-section-title">Timer</div>
+      <div class="sp-setting-row">
+        <div>
+          <div class="sp-setting-label">Auto-log on reset</div>
+          <div class="sp-setting-sub">Automatically save session when you hit Reset</div>
+        </div>
+        <label class="sp-toggle">
+          <input type="checkbox" id="set-autolog"/>
+          <span class="sp-toggle-track"></span>
+        </label>
+      </div>
+      <div class="sp-setting-row">
+        <div>
+          <div class="sp-setting-label">Show milliseconds</div>
+          <div class="sp-setting-sub">Display .00 in stopwatch mode</div>
+        </div>
+        <label class="sp-toggle">
+          <input type="checkbox" id="set-showms" checked/>
+          <span class="sp-toggle-track"></span>
+        </label>
+      </div>
+      <div class="sp-setting-row">
+        <div>
+          <div class="sp-setting-label">Sound on timer complete</div>
+          <div class="sp-setting-sub">Play a soft chime when countdown ends</div>
+        </div>
+        <label class="sp-toggle">
+          <input type="checkbox" id="set-sound" checked/>
+          <span class="sp-toggle-track"></span>
+        </label>
+      </div>
+    </div>
+
+    <!-- Display -->
+    <div>
+      <div class="sp-section-title">Display</div>
+      <div class="sp-setting-row">
+        <div>
+          <div class="sp-setting-label">Ambient background</div>
+          <div class="sp-setting-sub">Animated aurora blobs behind the timer</div>
+        </div>
+        <label class="sp-toggle">
+          <input type="checkbox" id="set-aurora" checked/>
+          <span class="sp-toggle-track"></span>
+        </label>
+      </div>
+      <div class="sp-setting-row">
+        <div>
+          <div class="sp-setting-label">Twinkling stars</div>
+          <div class="sp-setting-sub">Subtle blinking particles in the background</div>
+        </div>
+        <label class="sp-toggle">
+          <input type="checkbox" id="set-stars" checked/>
+          <span class="sp-toggle-track"></span>
+        </label>
+      </div>
+    </div>
+
+  </div>
+</div>
+
 <script>
 /* ════ CONSTANTS ════ */
-const SUBJECTS = [
+const SK        = 'studytimer_v2'; // storage key
+const SK_SUBJ   = 'studytimer_subjects';
+const SK_SETT   = 'studytimer_settings';
+const DAYS      = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const DAY_ORDER = [1,2,3,4,5,6,0]; // Mon → Sun
+
+const DEFAULT_SUBJECTS = [
   {name:'Maths',         color:'#f87171', dim:'#f8717120', mid:'#f8717155', bg1:'#7f1d1d', bg2:'#450a0a', bg3:'#991b1b'},
   {name:'English',       color:'#9ca3af', dim:'#9ca3af20', mid:'#9ca3af55', bg1:'#1f2937', bg2:'#111827', bg3:'#374151'},
   {name:'AP Maths',      color:'#fb923c', dim:'#fb923c20', mid:'#fb923c55', bg1:'#7c2d12', bg2:'#431407', bg3:'#9a3412'},
@@ -1320,9 +1557,40 @@ const SUBJECTS = [
   {name:'Comp. Science', color:'#38bdf8', dim:'#38bdf820', mid:'#38bdf855', bg1:'#0c4a6e', bg2:'#082f49', bg3:'#0369a1'},
   {name:'Physics',       color:'#c084fc', dim:'#c084fc20', mid:'#c084fc55', bg1:'#4a1d96', bg2:'#2e1065', bg3:'#6d28d9'},
 ];
-const DAYS      = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-const DAY_ORDER = [1,2,3,4,5,6,0]; // Mon → Sun
-const SK        = 'studytimer_v2'; // storage key
+
+/* Derive aurora bg colours from a hex colour */
+function deriveBg(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  const r = (n>>16)&255, g = (n>>8)&255, b = n&255;
+  const darken = (r,g,b,f) => `#${[r,g,b].map(c=>Math.round(c*f).toString(16).padStart(2,'0')).join('')}`;
+  return { bg1: darken(r,g,b,.55), bg2: darken(r,g,b,.3), bg3: darken(r,g,b,.65) };
+}
+function makeSubject(name, color) {
+  const hex = color.toLowerCase();
+  const bg  = deriveBg(hex);
+  return { name, color: hex,
+    dim: hex+'20', mid: hex+'55',
+    bg1: bg.bg1, bg2: bg.bg2, bg3: bg.bg3 };
+}
+function loadSubjects() {
+  try {
+    const s = JSON.parse(localStorage.getItem(SK_SUBJ));
+    return (Array.isArray(s) && s.length) ? s : JSON.parse(JSON.stringify(DEFAULT_SUBJECTS));
+  } catch { return JSON.parse(JSON.stringify(DEFAULT_SUBJECTS)); }
+}
+function saveSubjects() {
+  localStorage.setItem(SK_SUBJ, JSON.stringify(SUBJECTS));
+}
+let SUBJECTS = loadSubjects();
+
+/* ════ SETTINGS ════ */
+const DEFAULT_SETTINGS = { autolog: false, showms: true, sound: true, aurora: true, stars: true };
+function loadSettings() {
+  try { return Object.assign({}, DEFAULT_SETTINGS, JSON.parse(localStorage.getItem(SK_SETT)||'{}')); }
+  catch { return {...DEFAULT_SETTINGS}; }
+}
+function saveSettings(s) { localStorage.setItem(SK_SETT, JSON.stringify(s)); }
+let SETTINGS = loadSettings();
 
 /* ════ STATE ════ */
 let currentSubject = null;
@@ -1790,7 +2058,7 @@ function setMode(m) {
   modeSw.classList.toggle('active', m === 'sw');
   modeTm.classList.toggle('active', m === 'tm');
   timerInputRow.classList.toggle('hidden-soft', m === 'sw');
-  msEl.style.display = m === 'tm' ? 'none' : '';
+  msEl.style.display = (m === 'tm' || !SETTINGS.showms) ? 'none' : '';
   document.getElementById('btn-lap').style.display = m === 'tm' ? 'none' : '';
 }
 modeSw.addEventListener('click', () => setMode('sw'));
@@ -1995,6 +2263,24 @@ function onTimerComplete() {
   cancelAnimationFrame(animFrame);
   document.getElementById('clock').textContent = '00:00';
 
+  // Chime if setting enabled
+  if (SETTINGS.sound) {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      [0, 0.18, 0.36].forEach((t, i) => {
+        const o = ctx.createOscillator(), g = ctx.createGain();
+        o.connect(g); g.connect(ctx.destination);
+        o.frequency.value = [880, 1108, 1320][i];
+        o.type = 'sine';
+        g.gain.setValueAtTime(0, ctx.currentTime + t);
+        g.gain.linearRampToValueAtTime(0.18, ctx.currentTime + t + 0.04);
+        g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + t + 0.55);
+        o.start(ctx.currentTime + t);
+        o.stop(ctx.currentTime + t + 0.6);
+      });
+    } catch(e) {}
+  }
+
   // Flash pulse
   const clockRow = document.querySelector('.clock-row');
   clockRow.classList.add('completion-flash');
@@ -2019,6 +2305,12 @@ function onTimerComplete() {
 
 /* ════ SHARED RESET ════ */
 function resetAll() {
+  // Auto-log if setting enabled and there's something to log
+  if (SETTINGS.autolog) {
+    const totalElapsed = appMode === 'tm' ? fillElapsedMs : elapsed;
+    const segMs = totalElapsed - subjectStartElapsed;
+    if (segMs >= 1000) logCurrentSegment();
+  }
   cancelAnimationFrame(animFrame);
   running = false; elapsed = 0; lapAccum = 0; laps = [];
   subjectStartElapsed = 0;
@@ -2589,8 +2881,127 @@ document.getElementById('mp-save').addEventListener('click', () => {
   showToast(`<span class="toast-accent">✓</span> Added ${fmt(ms)} · ${label}`);
 });
 
+/* ════ SETTINGS PANEL ════ */
+function applySettings() {
+  // ms display
+  const ms = document.getElementById('ms');
+  if (ms) ms.style.display = (!SETTINGS.showms || appMode === 'tm') ? 'none' : '';
+
+  // aurora blobs
+  document.querySelectorAll('.aurora').forEach(el => {
+    el.style.display = SETTINGS.aurora ? '' : 'none';
+  });
+
+  // stars
+  document.querySelectorAll('.star').forEach(el => {
+    el.style.display = SETTINGS.stars ? '' : 'none';
+  });
+
+  // sync checkboxes
+  const ids = { autolog:'set-autolog', showms:'set-showms', sound:'set-sound', aurora:'set-aurora', stars:'set-stars' };
+  Object.entries(ids).forEach(([key, id]) => {
+    const el = document.getElementById(id);
+    if (el) el.checked = !!SETTINGS[key];
+  });
+}
+
+function renderSettingsSubjects() {
+  const list = document.getElementById('sp-subject-list');
+  if (!list) return;
+  list.innerHTML = '';
+  SUBJECTS.forEach((s, i) => {
+    const row = document.createElement('div');
+    row.className = 'sp-subj-row';
+    row.innerHTML = `
+      <span class="sp-subj-swatch" style="background:${s.color}" title="Click to change colour"></span>
+      <span class="sp-subj-name">${s.name}</span>
+      <button class="sp-subj-delete" title="Remove subject" data-i="${i}">✕</button>
+    `;
+    // Colour swatch → open colour picker
+    const swatch = row.querySelector('.sp-subj-swatch');
+    const picker = document.createElement('input');
+    picker.type = 'color'; picker.value = s.color;
+    picker.style.cssText = 'position:absolute;opacity:0;pointer-events:none;width:0;height:0';
+    row.appendChild(picker);
+    swatch.addEventListener('click', () => picker.click());
+    picker.addEventListener('input', () => { swatch.style.background = picker.value; });
+    picker.addEventListener('change', () => {
+      SUBJECTS[i] = makeSubject(s.name, picker.value);
+      saveSubjects();
+      rebuildSubjects();
+      renderSettingsSubjects();
+    });
+    // Delete
+    row.querySelector('.sp-subj-delete').addEventListener('click', () => {
+      if (SUBJECTS.length <= 1) { showToast('Need at least one subject'); return; }
+      if (currentSubject && currentSubject.name === s.name) {
+        currentSubject = null; applyTheme(null);
+        const badge = document.getElementById('active-badge');
+        badge.textContent = '—'; badge.classList.remove('shown');
+      }
+      SUBJECTS.splice(i, 1);
+      saveSubjects();
+      rebuildSubjects();
+      renderSettingsSubjects();
+    });
+    list.appendChild(row);
+  });
+}
+
+function openSettingsPanel() {
+  renderSettingsSubjects();
+  applySettings();
+  document.getElementById('settings-panel').classList.add('open');
+  document.getElementById('settings-scrim').classList.add('open');
+}
+function closeSettingsPanel() {
+  document.getElementById('settings-panel').classList.remove('open');
+  document.getElementById('settings-scrim').classList.remove('open');
+}
+
+// Rebuild subjects list + orbit selector after changes
+function rebuildSubjects() {
+  window._closeOrbit && window._closeOrbit();
+  buildSubjects();
+}
+
+// Add subject
+document.getElementById('sp-add-btn').addEventListener('click', () => {
+  const name  = document.getElementById('sp-add-name').value.trim();
+  const color = document.getElementById('sp-add-color').value;
+  if (!name) { showToast('Enter a subject name'); return; }
+  if (SUBJECTS.find(s => s.name.toLowerCase() === name.toLowerCase())) {
+    showToast('Subject already exists'); return;
+  }
+  SUBJECTS.push(makeSubject(name, color));
+  saveSubjects();
+  rebuildSubjects();
+  renderSettingsSubjects();
+  document.getElementById('sp-add-name').value = '';
+  showToast(`<span class="toast-accent">✓</span> Added ${name}`);
+});
+document.getElementById('sp-add-name').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('sp-add-btn').click();
+});
+
+// Toggle settings
+['autolog','showms','sound','aurora','stars'].forEach(key => {
+  const el = document.getElementById('set-' + key);
+  if (!el) return;
+  el.addEventListener('change', () => {
+    SETTINGS[key] = el.checked;
+    saveSettings(SETTINGS);
+    applySettings();
+  });
+});
+
+document.getElementById('btn-settings').addEventListener('click', openSettingsPanel);
+document.getElementById('sp-close').addEventListener('click', closeSettingsPanel);
+document.getElementById('settings-scrim').addEventListener('click', closeSettingsPanel);
+
 /* ════ INIT ════ */
 buildSubjects();
+applySettings();
 </script>
 </body>
 </html>
