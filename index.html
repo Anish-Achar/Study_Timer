@@ -1,0 +1,2596 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Study Timer</title>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root {
+  --accent: #a855f7;
+  --dim:    rgba(168,85,247,0.12);
+  --mid:    rgba(168,85,247,0.35);
+  --glow:   #a855f7;
+}
+*,*::before,*::after { box-sizing:border-box; margin:0; padding:0; }
+
+body {
+  font-family:'Outfit',sans-serif;
+  background:#060608;
+  color:#ccc;
+  min-height:100vh;
+  overflow:hidden;
+  position:relative;
+}
+
+/* ═══════════════════════════════════════════
+   BACKGROUND — Aurora + Oil-slick
+   GPU-only: only transform/opacity animated
+   ─────────────────────────────────────────── */
+
+/* Per-subject bg colour tokens (hue-based) */
+:root {
+  --bg-c1: #5b21b6;   /* aurora blob 1 — default purple */
+  --bg-c2: #9d174d;   /* aurora blob 2 — default rose   */
+  --bg-c3: #3b0764;   /* aurora blob 3 — default deep   */
+  --oil-hue: 0deg;    /* oil-slick hue offset            */
+}
+
+.bg {
+  position:fixed; inset:0;
+  z-index:0; pointer-events:none; overflow:hidden;
+}
+
+/* ── Oil-slick base: slowly hue-rotates the whole bg ── */
+.bg-oil {
+  position:absolute; inset:0;
+  background: #060608;
+  animation: oil-shift 90s linear infinite;
+}
+@keyframes oil-shift {
+  0%   { filter: hue-rotate(0deg)   brightness(1);   }
+  33%  { filter: hue-rotate(22deg)  brightness(1.03); }
+  66%  { filter: hue-rotate(-14deg) brightness(.97);  }
+  100% { filter: hue-rotate(0deg)   brightness(1);    }
+}
+
+/* ── Aurora blobs ── */
+/* Each blob is a large, heavily-blurred ellipse that
+   drifts on a slow, randomised path. Pure CSS transforms = GPU only. */
+.aurora {
+  position:absolute;
+  border-radius:50%;
+  filter:blur(110px);
+  will-change:transform;
+  mix-blend-mode: screen;
+  transition: background 2s cubic-bezier(.4,0,.2,1);
+}
+
+/* Blob 1 — top-left, slow wide arc */
+.aurora-1 {
+  width:65vw; height:55vw;
+  background: var(--bg-c1);
+  opacity:.18;
+  top:-15vw; left:-15vw;
+  animation: aurora-1 68s ease-in-out infinite alternate;
+}
+@keyframes aurora-1 {
+  0%   { transform: translate(0,0)         rotate(0deg)   scale(1);    }
+  25%  { transform: translate(12vw,8vw)    rotate(14deg)  scale(1.08); }
+  50%  { transform: translate(6vw,20vw)    rotate(-8deg)  scale(.94);  }
+  75%  { transform: translate(18vw,5vw)    rotate(22deg)  scale(1.05); }
+  100% { transform: translate(3vw,14vw)    rotate(-4deg)  scale(1.02); }
+}
+
+/* Blob 2 — bottom-right, counter-rhythm */
+.aurora-2 {
+  width:60vw; height:50vw;
+  background: var(--bg-c2);
+  opacity:.14;
+  bottom:-12vw; right:-12vw;
+  animation: aurora-2 82s ease-in-out infinite alternate;
+}
+@keyframes aurora-2 {
+  0%   { transform: translate(0,0)          rotate(0deg)   scale(1);    }
+  30%  { transform: translate(-10vw,-6vw)   rotate(-18deg) scale(1.06); }
+  60%  { transform: translate(-18vw,-14vw)  rotate(10deg)  scale(.92);  }
+  100% { transform: translate(-5vw,-20vw)   rotate(-25deg) scale(1.1);  }
+}
+
+/* Blob 3 — centre-right, tertiary drift */
+.aurora-3 {
+  width:45vw; height:40vw;
+  background: var(--bg-c3);
+  opacity:.11;
+  top:30%; left:40%;
+  animation: aurora-3 55s ease-in-out infinite alternate;
+}
+@keyframes aurora-3 {
+  0%   { transform: translate(0,0)        rotate(0deg)  scale(1);   }
+  40%  { transform: translate(-8vw,10vw)  rotate(30deg) scale(1.12);}
+  100% { transform: translate(10vw,-8vw)  rotate(-20deg) scale(.9); }
+}
+
+/* ── Illustrated SVG overlay (kept, dimmed) ── */
+.bg-svg {
+  position:absolute; inset:0;
+  width:100%; height:100%;
+}
+
+/* ── Twinkling particles ── */
+.star {
+  position:absolute;
+  width:2px; height:2px;
+  background: var(--accent);
+  border-radius:50%;
+  animation:star-blink ease-in-out infinite;
+  opacity: 0.5;
+  transition: background 2s ease;
+}
+@keyframes star-blink {
+  0%,100% { opacity:0.05; transform:scale(1);   }
+  50%      { opacity:0.45; transform:scale(1.8); }
+}
+
+/* ═══════════════════════════════════════════
+   PAGE SYSTEM
+   ─────────────────────────────────────────── */
+.page {
+  position:fixed; inset:0;
+  z-index:2;
+  display:flex; flex-direction:column;
+  align-items:center; justify-content:center;
+  transition:opacity .5s cubic-bezier(.4,0,.2,1), transform .5s cubic-bezier(.4,0,.2,1);
+}
+.page.hidden {
+  opacity:0; pointer-events:none;
+  transform:translateY(20px) scale(0.99);
+}
+.page.hidden-left {
+  opacity:0; pointer-events:none;
+  transform:translateY(-20px) scale(0.99);
+}
+
+/* ═══════════════════════════════════════════
+   MAIN PAGE — centred stack
+   ─────────────────────────────────────────── */
+#page-main {
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+}
+
+/* Centre column — everything clock-related */
+.centre-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  min-width: 0;
+}
+
+/* ═══════════════════════════════════════════
+   ACTION ROW — Subject ○  [Start]  ○ Stats
+   ─────────────────────────────────────────── */
+.action-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: .5rem;
+}
+
+/* ═══════════════════════════════════════════
+   SUBJECT SELECTOR — Bottom-anchored unwind
+   Circle bottom = Line top. Grows downward.
+   ─────────────────────────────────────────── */
+
+/*
+  DOM structure used:
+    .subject-orbit        ← 52×52 placeholder in the action-row flex
+      #orbit-anchor       ← position:fixed clone of that spot, via JS
+        #orbit-shell      ← overflow:hidden capsule that clips the morph
+          #orbit-btn      ← the gradient pill that morphs
+        #subject-dropdown ← list panel beside the shell
+*/
+
+/* The 52×52 placeholder — keeps the action-row layout intact */
+.subject-orbit {
+  position: relative;
+  width: 52px;
+  height: 52px;
+  flex-shrink: 0;
+}
+
+/* Fixed anchor — JS positions this to match .subject-orbit exactly.
+   Everything visual lives inside here so it escapes all stacking contexts. */
+#orbit-anchor {
+  position: fixed;
+  z-index: 9995;
+  /* width/height/top/left set by JS — hidden until first sync */
+  pointer-events: none;
+  visibility: hidden;
+}
+#orbit-anchor.synced {
+  visibility: visible;
+}
+#orbit-anchor.anchor-live {
+  pointer-events: auto;
+}
+
+/*
+  The clipping shell.
+  - In resting state: 52×52, border-radius 50%  → shows the circle
+  - In open state:    4px wide, tall             → shows the line
+  - transform-origin: top center                 → grows DOWN from circle top
+  The shell clips the gradient button so only the pill shape shows.
+*/
+#orbit-shell {
+  position: absolute;
+  top: 0;             /* anchor at TOP of circle = line grows downward */
+  left: 50%;
+  transform: translateX(-50%);
+  transform-origin: top center;
+
+  width: 52px;
+  height: 52px;
+  border-radius: 26px; /* 50% of 52px */
+  overflow: hidden;
+  cursor: pointer;
+
+  /* Phase 1: squish width (0→140ms) */
+  /* Phase 2: stretch height (100→320ms) */
+  /* We animate via JS-set CSS custom properties + a single transition */
+  transition:
+    width        .30s cubic-bezier(.55,0,.1,1),
+    height       .30s cubic-bezier(.4,0,.2,1),
+    border-radius .28s cubic-bezier(.55,0,.1,1);
+
+  will-change: width, height, border-radius;
+}
+
+/* The gradient surface — fills the shell entirely, always */
+#orbit-btn {
+  position: absolute;
+  inset: 0;
+  border: none;
+  cursor: pointer;
+  background: conic-gradient(
+    from 180deg,
+    #f87171, #fb923c, #fbbf24, #34d399,
+    #38bdf8, #60a5fa, #c084fc, #f87171
+  );
+  /* no border-radius here — shell clips it */
+  border-radius: 0;
+
+  /* Glint overlay — the dark inner "hole" of the circle,
+     fades away as shell narrows to a line */
+  transition: box-shadow .25s ease;
+}
+
+/* Dark inner circle cutout via box-shadow inset on the button */
+#orbit-btn::after {
+  content: '';
+  position: absolute;
+  /* Start: inset covering most of the 52×52 circle */
+  top: 3px; left: 3px; right: 3px; bottom: 3px;
+  border-radius: 50%;
+  background: #0a0a0d;
+  transition:
+    top .28s cubic-bezier(.55,0,.1,1),
+    left .1s ease,
+    right .1s ease,
+    bottom .04s ease,
+    border-radius .28s ease,
+    opacity .18s ease;
+}
+
+/* ── RESTING glow ── */
+#orbit-shell {
+  box-shadow:
+    0 0 18px rgba(168,85,247,.28),
+    0 0 5px rgba(0,0,0,.7);
+}
+
+/* ── OPEN STATE ── */
+#orbit-anchor.anchor-live #orbit-shell {
+  width: 4px;
+  height: var(--line-height, 240px);
+  border-radius: 2px;
+  box-shadow:
+    0 0 14px rgba(168,85,247,.7),
+    0 0 32px rgba(168,85,247,.28),
+    0 0 2px rgba(255,255,255,.15);
+}
+/* Collapse the dark hole — left/right eat inward, then top/bottom vanish */
+#orbit-anchor.anchor-live #orbit-btn::after {
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: transparent;
+  border-radius: 2px;
+  opacity: 0;
+}
+
+/* ── Scrim ── */
+#orbit-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 9988;
+  background: rgba(6,6,8,0.55);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .2s ease;
+}
+#orbit-scrim.active { opacity: 1; }
+
+/* ── Subject list panel — sits to the right of #orbit-shell ── */
+#subject-dropdown {
+  position: absolute;
+  left: calc(100% + 16px);
+  top: -6px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  pointer-events: none;
+  min-width: 190px;
+  background: rgba(10,10,14,0.97);
+  border: 1px solid rgba(255,255,255,.07);
+  border-radius: 12px;
+  padding: 8px 6px;
+  box-shadow: 0 8px 32px rgba(0,0,0,.7), 0 2px 8px rgba(0,0,0,.5);
+  opacity: 0;
+  transform: translateX(-6px) scale(0.98);
+  transition: opacity .16s ease, transform .18s cubic-bezier(.4,0,.2,1);
+  will-change: opacity, transform;
+}
+#orbit-anchor.anchor-live #subject-dropdown {
+  pointer-events: auto;
+  opacity: 1;
+  transform: translateX(0) scale(1);
+}
+/* Instant hide when collapsing — driven by JS class */
+#orbit-anchor.closing #subject-dropdown {
+  opacity: 0;
+  transform: translateX(-4px) scale(0.98);
+  pointer-events: none;
+  transition: opacity .15s ease, transform .15s ease;
+}
+
+/* Section label */
+.dd-section-label {
+  font-size: 7px;
+  letter-spacing: .22em;
+  text-transform: uppercase;
+  color: #444;
+  font-weight: 700;
+  font-family: 'Outfit', sans-serif;
+  padding: 4px 10px 5px;
+  margin-top: 2px;
+}
+
+/* Divider */
+.dd-divider {
+  height: 1px;
+  background: rgba(255,255,255,.06);
+  margin: 4px 8px;
+}
+
+/* Subject row */
+.dd-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px 7px 10px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  font-family: 'Outfit', sans-serif;
+  white-space: nowrap;
+  transition: background .12s ease;
+}
+.dd-item:hover { background: rgba(255,255,255,.06); }
+.dd-item.dd-active {
+  background: rgba(255,255,255,.05);
+}
+
+/* Left color bar */
+.dd-bar {
+  width: 3px; height: 16px;
+  border-radius: 2px;
+  flex-shrink: 0;
+  opacity: .5;
+  transition: opacity .14s ease, box-shadow .18s ease;
+}
+.dd-item:hover .dd-bar,
+.dd-item.dd-active .dd-bar { opacity: 1; }
+.dd-item:hover .dd-bar      { box-shadow: 0 0 6px var(--item-color); }
+.dd-item.dd-active .dd-bar  { box-shadow: 0 0 10px var(--item-color); }
+
+/* Name */
+.dd-name {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  color: #777;
+  flex: 1;
+  transition: color .12s ease;
+}
+.dd-item:hover .dd-name     { color: #ddd; }
+.dd-item.dd-active .dd-name { color: var(--item-color); }
+
+/* Usage */
+.dd-stat {
+  font-size: 9px;
+  font-weight: 600;
+  color: #3a3a3a;
+  font-variant-numeric: tabular-nums;
+  font-family: 'Outfit', sans-serif;
+  flex-shrink: 0;
+  transition: color .12s ease;
+}
+.dd-item:hover .dd-stat     { color: #555; }
+.dd-item.dd-active .dd-stat { color: color-mix(in srgb, var(--item-color) 60%, #444); }
+
+/* Clear row */
+.dd-clear {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  width: 100%;
+  font-family: 'Outfit', sans-serif;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: #3a3a3a;
+  transition: color .12s, background .12s;
+}
+.dd-clear:hover { color: #888; background: rgba(255,255,255,.04); }
+
+/* ── Stats icon button ── */
+.stats-icon-btn {
+  width: 52px; height: 52px;
+  border-radius: 50%;
+  background: rgba(0,0,0,.4);
+  border: 1px solid #1e1e1e;
+  color: #333;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  backdrop-filter: blur(6px);
+  transition: color .2s, border-color .2s, background .2s, box-shadow .2s;
+}
+.stats-icon-btn:hover {
+  color: var(--accent);
+  border-color: var(--mid);
+  background: var(--dim);
+  box-shadow: 0 0 18px var(--dim);
+}
+
+/* Secondary controls (lap / reset / log) */
+.secondary-controls {
+  display: flex; gap: 8px; align-items: center;
+  justify-content: center;
+  margin-top: .75rem;
+}
+
+/* Size toggle row — sits tight under the action row */
+.size-row {
+  display: flex; gap: 6px; align-items: center;
+  margin-top: .35rem;
+}
+
+/* Mode toggle */
+.mode-toggle {
+  display: flex; gap: 0; margin-bottom: 1.2rem;
+  background: rgba(0,0,0,.4); border: 1px solid #181818;
+  border-radius: 10px; padding: 3px;
+  backdrop-filter: blur(8px);
+}
+.mode-btn {
+  padding: 6px 20px; border-radius: 7px; border: none;
+  font-family: 'Outfit', sans-serif; font-size: 9px;
+  font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
+  cursor: pointer; color: #2e2e2e; background: transparent;
+  transition: all .2s cubic-bezier(.4,0,.2,1);
+}
+.mode-btn.active {
+  background: var(--dim); color: var(--accent);
+  box-shadow: 0 0 14px var(--dim);
+}
+
+/* Removed: .controls, .bottom-row, .size-controls (replaced by .action-row, .secondary-controls, .size-row) */
+
+/* Active subject badge */
+.active-badge {
+  font-size: 9px; letter-spacing: .2em; text-transform: uppercase;
+  color: transparent; margin-bottom: .5rem;
+  height: 14px; font-weight: 600;
+  transition: color .3s;
+}
+.active-badge.shown { color: var(--accent); }
+
+/* Clock */
+.clock-row {
+  display: flex; align-items: baseline; gap: 6px;
+  line-height: 1; margin-bottom: .4em;
+  transition: transform .5s cubic-bezier(.4,0,.2,1), gap .4s ease;
+}
+.clock {
+  font-family: 'Outfit', sans-serif;
+  font-size: clamp(72px, 12vw, 148px);
+  font-weight: 800; letter-spacing: -.04em;
+  color: #fff; font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  text-shadow: 0 0 70px rgba(168,85,247,.14);
+  transition: font-size .5s cubic-bezier(.4,0,.2,1), text-shadow .5s ease;
+}
+.ms {
+  font-family: 'Outfit', sans-serif;
+  font-size: clamp(26px, 4.5vw, 52px);
+  font-weight: 600; color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap; align-self: flex-end;
+  padding-bottom: .12em;
+  text-shadow: 0 0 22px var(--glow);
+  transition: font-size .5s cubic-bezier(.4,0,.2,1), text-shadow .5s ease;
+}
+
+/* Timer input row */
+.timer-input-row {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: .8rem;
+  transition: opacity .3s, transform .3s;
+}
+.timer-input-row.hidden-soft {
+  opacity: 0; pointer-events: none; transform: translateY(6px);
+}
+
+/* Controls and bottom rows handled by .action-row and .secondary-controls */
+
+/* Large fullscreen mode */
+body.size-lg-full .centre-col { justify-content: center; }
+body.size-lg-full .clock {
+  font-size: clamp(120px, 20vw, 26vw);
+  text-shadow: 0 0 120px rgba(168,85,247,.22);
+}
+body.size-lg-full .ms { font-size: clamp(44px, 7vw, 9vw); }
+body.size-lg-full .clock-row { transform: scale(1.02); }
+
+body.size-lg .clock { font-size: clamp(110px, 18vw, 200px); }
+body.size-lg .ms    { font-size: clamp(40px, 6.5vw, 74px); }
+body.size-sm .clock { font-size: clamp(40px, 8vw, 80px); }
+body.size-sm .ms    { font-size: clamp(16px, 3vw, 30px); }
+
+/* Elements that fade out in large mode */
+.fade-for-large {
+  transition: opacity .45s cubic-bezier(.4,0,.2,1),
+              transform .45s cubic-bezier(.4,0,.2,1),
+              max-height .45s cubic-bezier(.4,0,.2,1);
+  overflow: hidden;
+}
+body.size-lg-full .fade-for-large {
+  opacity: 0; transform: translateY(10px);
+  pointer-events: none;
+  max-height: 0 !important;
+  margin: 0 !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+}
+
+/* Hide orbit entirely in large mode */
+body.size-lg-full #orbit-anchor,
+body.stats-open   #orbit-anchor {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .3s ease;
+}
+body:not(.size-lg-full):not(.stats-open) #orbit-anchor {
+  transition: opacity .3s ease;
+}
+@media (max-width: 480px) {
+  .orbit-item { font-size: 8px; padding: 5px 9px; }
+  #btn-start  { padding: 13px 34px; }
+}
+
+/* Large-mode exit × button — centre screen, hidden until hover */
+.lg-exit-hint {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 52px; height: 52px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  color: transparent;
+  font-size: 22px;
+  font-weight: 300;
+  font-family: 'Outfit', sans-serif;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 10;
+  transition: opacity .3s ease, color .2s, background .2s, border-color .2s;
+  backdrop-filter: blur(4px);
+  line-height: 1;
+}
+body.size-lg-full .lg-exit-hint {
+  pointer-events: auto;
+}
+body.size-lg-full .lg-exit-hint:hover {
+  opacity: 1;
+  color: #fff;
+  background: rgba(255,255,255,0.09);
+  border-color: rgba(255,255,255,0.2);
+}
+
+/* Size toggle buttons */
+.size-btn {
+  background:rgba(0,0,0,.4); backdrop-filter:blur(4px);
+  border:1px solid #181818; color:#282828;
+  border-radius:8px; padding:5px 12px;
+  font-size:10px; font-family:'Outfit',sans-serif;
+  font-weight:700; letter-spacing:.08em; text-transform:uppercase;
+  cursor:pointer; transition:all .15s;
+}
+.size-btn:hover  { color:#555; border-color:#2e2e2e; }
+.size-btn.active { color:var(--accent); border-color:var(--mid); background:var(--dim); }
+.ctrl {
+  border-radius:999px; font-family:'Outfit',sans-serif;
+  font-size:10px; font-weight:700; letter-spacing:.1em; text-transform:uppercase;
+  cursor:pointer; border:none;
+  transition:transform .1s, opacity .15s, background .25s, box-shadow .25s;
+}
+.ctrl:active   { transform:scale(.94); }
+.ctrl:disabled { opacity:.1; cursor:default; }
+
+#btn-start {
+  background:var(--accent); color:#fff;
+  padding:13px 42px; font-size:11px;
+  box-shadow:0 0 30px var(--mid), 0 0 60px var(--dim);
+}
+#btn-start.paused {
+  background:rgba(14,14,14,.88); color:#383838;
+  border:1px solid #1d1d1d; box-shadow:none;
+}
+.ghost {
+  background:rgba(0,0,0,.4); backdrop-filter:blur(4px);
+  color:#242424; border:1px solid #181818;
+  padding:12px 22px;
+}
+.ghost:not(:disabled):hover { color:#505050; border-color:#2d2d2d; }
+
+/* Reset button — red glow when enabled */
+#btn-reset:not(:disabled) {
+  color:#f87171;
+  border-color:#7f1d1d;
+  background:rgba(248,113,113,0.06);
+  box-shadow: 0 0 18px rgba(248,113,113,0.15), 0 0 40px rgba(248,113,113,0.07);
+}
+#btn-reset:not(:disabled):hover {
+  color:#fca5a5;
+  border-color:#b91c1c;
+  background:rgba(248,113,113,0.12);
+  box-shadow: 0 0 24px rgba(248,113,113,0.25), 0 0 60px rgba(248,113,113,0.12);
+}
+
+/* Log button — accent glow */
+#btn-log {
+  display: inline-flex;
+}
+#btn-log:not(:disabled) {
+  color: var(--accent);
+  border-color: var(--mid);
+  background: var(--dim);
+  box-shadow: 0 0 18px var(--dim);
+}
+#btn-log:not(:disabled):hover {
+  background: rgba(168,85,247,0.18);
+  box-shadow: 0 0 26px var(--mid);
+}
+
+/* Stats nav button is now .stats-icon-btn (see action row styles) */
+
+/* ═══════════════════════════════════════════
+   STATS PAGE
+   ─────────────────────────────────────────── */
+#page-stats {
+  justify-content:flex-start;
+  overflow-y:auto; overflow-x:hidden;
+  padding:0;
+  align-items:stretch;
+}
+#page-stats::-webkit-scrollbar { width:2px; }
+#page-stats::-webkit-scrollbar-thumb { background:#222; border-radius:2px; }
+
+/* Solid card that sits clearly above the aurora background */
+.stats-inner {
+  max-width:720px; width:100%; margin:0 auto;
+  background: rgba(8,8,11,0.96);
+  border-left: 1px solid #1e1e1e;
+  border-right: 1px solid #1e1e1e;
+  min-height: 100vh;
+  padding: 2rem 1.8rem 5rem;
+  box-shadow: 0 0 80px rgba(0,0,0,0.8), inset 0 0 0 0 transparent;
+}
+
+/* Header */
+.stats-header {
+  display:flex; align-items:center; gap:1rem;
+  margin-bottom:2rem; flex-wrap:wrap;
+}
+#btn-back {
+  background:rgba(0,0,0,.4); backdrop-filter:blur(4px);
+  border:1px solid #222; color:#aaa; border-radius:8px;
+  padding:7px 14px; font-family:'Outfit',sans-serif;
+  font-size:10px; font-weight:700; letter-spacing:.08em; text-transform:uppercase;
+  cursor:pointer; transition:all .15s; flex-shrink:0;
+}
+#btn-back:hover { color:var(--accent); border-color:var(--mid); }
+
+.stats-title {
+  font-size:clamp(22px,5vw,34px); font-weight:800;
+  color:#fff; letter-spacing:-.02em; flex:1;
+}
+#btn-export {
+  background:var(--dim); border:1px solid var(--mid); color:var(--accent);
+  border-radius:8px; padding:8px 16px; font-family:'Outfit',sans-serif;
+  font-size:9px; font-weight:700; letter-spacing:.1em; text-transform:uppercase;
+  cursor:pointer; transition:all .2s; white-space:nowrap; flex-shrink:0;
+}
+#btn-export:hover { background:var(--mid); }
+
+#btn-add-session {
+  background:rgba(255,255,255,.05); border:1px solid #2a2a2a; color:#aaa;
+  border-radius:8px; padding:8px 14px; font-family:'Outfit',sans-serif;
+  font-size:9px; font-weight:700; letter-spacing:.1em; text-transform:uppercase;
+  cursor:pointer; transition:all .2s; white-space:nowrap; flex-shrink:0;
+}
+#btn-add-session:hover { color:var(--accent); border-color:var(--mid); background:var(--dim); }
+
+#btn-clear-data {
+  background:rgba(248,113,113,0.07); border:1px solid #7f1d1d; color:#f87171;
+  border-radius:8px; padding:8px 14px; font-family:'Outfit',sans-serif;
+  font-size:9px; font-weight:700; letter-spacing:.1em; text-transform:uppercase;
+  cursor:pointer; transition:all .2s; white-space:nowrap; flex-shrink:0;
+  box-shadow: 0 0 16px rgba(248,113,113,0.1);
+}
+#btn-clear-data:hover {
+  background:rgba(248,113,113,0.15); border-color:#b91c1c;
+  box-shadow: 0 0 24px rgba(248,113,113,0.2);
+}
+
+/* Insight cards */
+.insight-row {
+  display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr));
+  gap:10px; margin-bottom:2rem;
+}
+.insight-card {
+  background:rgba(0,0,0,.45); backdrop-filter:blur(8px);
+  border:1px solid #1a1a1a; border-radius:14px;
+  padding:16px; display:flex; flex-direction:column; gap:5px;
+}
+.ic-lbl { font-size:8px; letter-spacing:.18em; text-transform:uppercase; color:#888; font-weight:600; }
+.ic-val { font-size:22px; font-weight:800; color:var(--accent); font-variant-numeric:tabular-nums; line-height:1; }
+.ic-sub { font-size:9px; color:#666; font-weight:500; }
+
+/* Sections */
+.s-section { margin-bottom:2rem; }
+.s-title {
+  font-size:8px; letter-spacing:.2em; text-transform:uppercase;
+  color:#666; font-weight:700; margin-bottom:.9rem;
+  padding-bottom:7px; border-bottom:1px solid #1e1e1e;
+}
+
+/* Chart canvases */
+canvas.chart-canvas { width:100%; display:block; }
+
+/* Subject breakdown */
+.subj-row {
+  display:flex; align-items:center; gap:10px; margin-bottom:11px;
+}
+.subj-row-dot  { width:7px; height:7px; border-radius:2px; flex-shrink:0; }
+.subj-row-name { font-size:11px; color:#ccc; flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:600; }
+.subj-row-bar  { flex:2; height:3px; background:#1a1a1a; border-radius:2px; overflow:hidden; }
+.subj-row-fill { height:100%; border-radius:2px; }
+.subj-row-time { font-size:10px; color:#999; min-width:38px; text-align:right; font-weight:600; font-variant-numeric:tabular-nums; }
+
+/* Pattern chips */
+.pattern-chips { display:flex; flex-wrap:wrap; gap:0; }
+.pchip {
+  display:inline-flex; align-items:center; gap:7px;
+  background:rgba(255,255,255,.04); border:1px solid #1e1e1e; border-radius:999px;
+  padding:7px 14px; font-size:10px; color:#aaa;
+  margin:0 6px 8px 0; font-weight:500; backdrop-filter:blur(4px);
+}
+.pchip strong { color:var(--accent); font-weight:700; }
+
+/* Session log */
+.log-table { width:100%; border-collapse:collapse; }
+.log-table th {
+  font-size:8px; letter-spacing:.15em; text-transform:uppercase;
+  color:#666; font-weight:700; text-align:left; padding:0 0 8px;
+}
+.log-table td {
+  font-size:10px; color:#aaa; padding:8px 0;
+  border-top:1px solid #141414; font-variant-numeric:tabular-nums;
+}
+.log-table td:first-child { font-weight:700; font-size:11px; }
+.log-table td:last-child  { text-align:right; }
+
+.btn-delete-session {
+  background: none; border: none; cursor: pointer;
+  color: #2a2a2a; font-size: 13px; padding: 2px 4px;
+  border-radius: 4px; line-height:1;
+  transition: color .15s, background .15s;
+  font-family: 'Outfit', sans-serif;
+}
+.btn-delete-session:hover {
+  color: #f87171;
+  background: rgba(248,113,113,0.08);
+}
+
+/* ═══════════════════════════════════════════
+   MODE TOGGLE (Stopwatch | Timer)
+   ─────────────────────────────────────────── */
+.mode-toggle {
+  display:flex; gap:0; margin-bottom:1.4rem;
+  background:rgba(0,0,0,.4); border:1px solid #181818;
+  border-radius:10px; padding:3px;
+  backdrop-filter:blur(8px);
+}
+.mode-btn {
+  padding:6px 20px; border-radius:7px; border:none;
+  font-family:'Outfit',sans-serif; font-size:9px;
+  font-weight:700; letter-spacing:.1em; text-transform:uppercase;
+  cursor:pointer; color:#2e2e2e; background:transparent;
+  transition:all .2s cubic-bezier(.4,0,.2,1);
+}
+.mode-btn.active {
+  background:var(--dim); color:var(--accent);
+  box-shadow:0 0 14px var(--dim);
+}
+
+/* ── Timer Input ── */
+.timer-input-row {
+  display:flex; align-items:center; gap:8px;
+  margin-bottom:1rem;
+  transition:opacity .3s, transform .3s;
+}
+.timer-input-row.hidden-soft {
+  opacity:0; pointer-events:none; transform:translateY(6px);
+}
+.time-field {
+  background:rgba(0,0,0,.5); border:1px solid #1e1e1e;
+  border-radius:8px; color:#fff; font-family:'Outfit',sans-serif;
+  font-size:13px; font-weight:700; text-align:center;
+  width:56px; padding:8px 6px;
+  outline:none; transition:border-color .2s;
+  -moz-appearance:textfield;
+}
+.time-field::-webkit-outer-spin-button,
+.time-field::-webkit-inner-spin-button { -webkit-appearance:none; }
+.time-field:focus { border-color:var(--mid); }
+.time-sep {
+  font-size:18px; font-weight:800; color:#333; line-height:1;
+}
+.time-field-lbl {
+  font-size:7px; letter-spacing:.15em; text-transform:uppercase;
+  color:#333; font-weight:700; text-align:center; margin-top:3px;
+}
+.time-field-wrap { display:flex; flex-direction:column; align-items:center; }
+
+/* ── Canvas fill overlay (z between bg and page) ── */
+#fill-canvas {
+  position:fixed; inset:0;
+  z-index:1;
+  pointer-events:none;
+  opacity:0;
+  transition:opacity .5s ease;
+}
+#fill-canvas.active { opacity:1; }
+
+/* ── Completion pulse ── */
+@keyframes completion-pulse {
+  0%,100% { opacity:1; }
+  50%      { opacity:.3; }
+}
+.completion-flash {
+  animation: completion-pulse .4s ease-in-out 6;
+}
+
+/* ── Toast notification ── */
+#toast {
+  position: fixed;
+  bottom: 2.5rem;
+  left: 50%;
+  transform: translateX(-50%) translateY(12px);
+  background: rgba(15,15,18,0.92);
+  border: 1px solid #2a2a2a;
+  border-radius: 999px;
+  padding: 10px 22px;
+  font-family: 'Outfit', sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  letter-spacing: .04em;
+  backdrop-filter: blur(12px);
+  z-index: 20;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .25s ease, transform .25s ease;
+  white-space: nowrap;
+}
+#toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+#toast .toast-accent { color: var(--accent); }
+
+/* ── Stopwatch cube canvas ── */
+#sw-canvas {
+  position: fixed; inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 1s ease;
+}
+#sw-canvas.active { opacity: 1; }
+
+/* ═══════════════════════════════════════════
+   MANUAL ENTRY PANEL
+   Slides in from the right over the stats page
+   ─────────────────────────────────────────── */
+#manual-panel {
+  position: fixed;
+  top: 0; right: 0; bottom: 0;
+  width: min(420px, 100vw);
+  z-index: 30;
+  background: #09090c;
+  border-left: 1px solid #1a1a1a;
+  display: flex; flex-direction: column;
+  transform: translateX(100%);
+  transition: transform .4s cubic-bezier(.4,0,.2,1);
+  overflow-y: auto;
+}
+#manual-panel.open { transform: translateX(0); }
+#manual-panel::-webkit-scrollbar { width: 2px; }
+#manual-panel::-webkit-scrollbar-thumb { background: #1a1a1a; }
+
+.mp-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 1.6rem 1.5rem 1.2rem;
+  border-bottom: 1px solid #141414;
+  flex-shrink: 0;
+}
+.mp-title {
+  font-size: 16px; font-weight: 800; color: #fff; letter-spacing: -.02em;
+}
+#mp-close {
+  background: rgba(255,255,255,.05); border: 1px solid #222;
+  color: #888; border-radius: 8px; padding: 5px 12px;
+  font-family: 'Outfit', sans-serif; font-size: 10px;
+  font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+  cursor: pointer; transition: all .15s;
+}
+#mp-close:hover { color: #fff; border-color: #333; }
+
+.mp-body { padding: 1.5rem; display: flex; flex-direction: column; gap: 1.2rem; }
+
+.mp-field { display: flex; flex-direction: column; gap: 6px; }
+.mp-label {
+  font-size: 8px; letter-spacing: .18em; text-transform: uppercase;
+  color: #555; font-weight: 700;
+}
+.mp-input {
+  background: rgba(255,255,255,.04); border: 1px solid #1e1e1e;
+  border-radius: 8px; color: #fff; font-family: 'Outfit', sans-serif;
+  font-size: 13px; font-weight: 600; padding: 10px 14px;
+  outline: none; transition: border-color .2s; width: 100%;
+}
+.mp-input:focus { border-color: var(--mid); }
+.mp-input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(.4);
+  cursor: pointer;
+}
+
+/* Subject picker inside panel */
+.mp-subjects {
+  display: grid; grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.mp-subj-btn {
+  padding: 7px 10px; border-radius: 8px;
+  font-size: 9px; font-weight: 700; letter-spacing: .07em;
+  text-transform: uppercase; cursor: pointer;
+  border: 1px solid #1a1a1a;
+  background: rgba(0,0,0,.4);
+  color: #333; font-family: 'Outfit', sans-serif;
+  transition: all .18s; display: flex; align-items: center; gap: 6px;
+  width: 100%;
+}
+.mp-subj-btn.active {
+  background: var(--dim); border-color: var(--mid);
+  color: var(--accent);
+}
+
+/* Duration row */
+.mp-dur-row {
+  display: flex; align-items: center; gap: 8px;
+}
+.mp-dur-row .time-field { width: 64px; }
+
+/* Save button */
+#mp-save {
+  background: var(--accent); color: #fff; border: none;
+  border-radius: 999px; padding: 13px; width: 100%;
+  font-family: 'Outfit', sans-serif; font-size: 11px;
+  font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
+  cursor: pointer; margin-top: .4rem;
+  box-shadow: 0 0 30px var(--mid), 0 0 60px var(--dim);
+  transition: opacity .15s, transform .1s;
+}
+#mp-save:hover  { opacity: .9; }
+#mp-save:active { transform: scale(.97); }
+
+/* Scrim behind panel */
+#manual-scrim {
+  position: fixed; inset: 0; z-index: 29;
+  background: rgba(0,0,0,.5);
+  opacity: 0; pointer-events: none;
+  transition: opacity .4s ease;
+  backdrop-filter: blur(2px);
+}
+#manual-scrim.open { opacity: 1; pointer-events: auto; }
+
+</style>
+</head>
+<body class="size-md">
+
+<!-- ════════════════════════════════════════════
+     ABSTRACT BACKGROUND (no JS, no canvas)
+     ════════════════════════════════════════════ -->
+<div class="bg">
+  <!-- Oil-slick base -->
+  <div class="bg-oil"></div>
+
+  <!-- Aurora blobs -->
+  <div class="aurora aurora-1"></div>
+  <div class="aurora aurora-2"></div>
+  <div class="aurora aurora-3"></div>
+
+  <!-- Illustrated SVG overlay: dashed orbits, corner etch lines, crosshair -->
+  <svg class="bg-svg" id="bg-svg" viewBox="0 0 1440 900" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid slice" style="opacity:.055; color: var(--accent); transition: color 2s ease;">
+    <!-- Dashed orbital ellipses -->
+    <ellipse cx="720" cy="450" rx="340" ry="215" fill="none" stroke="currentColor" stroke-width=".6" stroke-dasharray="5 14"/>
+    <ellipse cx="720" cy="450" rx="510" ry="322" fill="none" stroke="currentColor" stroke-width=".5" stroke-dasharray="3 20"/>
+    <!-- Orbit anchor dots -->
+    <circle cx="720" cy="235" r="3.5" fill="currentColor" opacity=".35"/>
+    <circle cx="1230" cy="450" r="2.8" fill="currentColor" opacity=".25"/>
+    <circle cx="210"  cy="450" r="2.5" fill="currentColor" opacity=".28"/>
+    <circle cx="720"  cy="772" r="3"   fill="currentColor" opacity=".22"/>
+    <!-- Corner etch marks -->
+    <line x1="0"    y1="0"   x2="110" y2="110" stroke="currentColor" stroke-width=".4" opacity=".6"/>
+    <line x1="1440" y1="0"   x2="1330" y2="110" stroke="currentColor" stroke-width=".4" opacity=".6"/>
+    <line x1="0"    y1="900" x2="110" y2="790"  stroke="currentColor" stroke-width=".4" opacity=".6"/>
+    <line x1="1440" y1="900" x2="1330" y2="790" stroke="currentColor" stroke-width=".4" opacity=".6"/>
+    <!-- Bracket corners -->
+    <polyline points="30,10 10,10 10,30"   fill="none" stroke="currentColor" stroke-width=".5" opacity=".5"/>
+    <polyline points="1410,10 1430,10 1430,30" fill="none" stroke="currentColor" stroke-width=".5" opacity=".5"/>
+    <polyline points="10,870 10,890 30,890" fill="none" stroke="currentColor" stroke-width=".5" opacity=".5"/>
+    <polyline points="1430,870 1430,890 1410,890" fill="none" stroke="currentColor" stroke-width=".5" opacity=".5"/>
+    <!-- Centre crosshair -->
+    <line x1="694" y1="450" x2="746" y2="450" stroke="currentColor" stroke-width=".6" opacity=".45"/>
+    <line x1="720" y1="424" x2="720" y2="476" stroke="currentColor" stroke-width=".6" opacity=".45"/>
+    <circle cx="720" cy="450" r="5" fill="none" stroke="currentColor" stroke-width=".6" opacity=".4"/>
+  </svg>
+
+  <!-- Twinkling stars -->
+  <div class="star" style="top:11%;left:21%;animation-delay:0s;   animation-duration:5s;"></div>
+  <div class="star" style="top:27%;left:77%;animation-delay:-2s;  animation-duration:7s;"></div>
+  <div class="star" style="top:64%;left:17%;animation-delay:-1s;  animation-duration:6s;"></div>
+  <div class="star" style="top:79%;left:83%;animation-delay:-3.5s;animation-duration:8s;"></div>
+  <div class="star" style="top:43%;left:87%;animation-delay:-4s;  animation-duration:5.5s;"></div>
+  <div class="star" style="top:9%; left:54%;animation-delay:-1.5s;animation-duration:9s;"></div>
+  <div class="star" style="top:87%;left:39%;animation-delay:-0.5s;animation-duration:6.5s;"></div>
+  <div class="star" style="top:21%;left:41%;animation-delay:-2.5s;animation-duration:7.5s;"></div>
+  <div class="star" style="top:54%;left:7%; animation-delay:-1s;  animation-duration:4.5s;"></div>
+  <div class="star" style="top:91%;left:64%;animation-delay:-3s;  animation-duration:8.5s;"></div>
+  <div class="star" style="top:37%;left:58%;animation-delay:-0.8s;animation-duration:6.2s;"></div>
+  <div class="star" style="top:72%;left:48%;animation-delay:-4.2s;animation-duration:5.8s;"></div>
+</div>
+
+<!-- Canvas fill overlay (sits above bg, below page content) -->
+<canvas id="fill-canvas"></canvas>
+<!-- Stopwatch cube canvas -->
+<canvas id="sw-canvas"></canvas>
+<!-- Toast -->
+<div id="toast"></div>
+<!-- Subject selector scrim -->
+<div id="orbit-scrim"></div>
+<!-- #orbit-anchor and #subject-dropdown are injected by buildSubjects() -->
+
+<!-- ════════════════════════════════════════════
+     MAIN PAGE
+     ════════════════════════════════════════════ -->
+<div class="page" id="page-main">
+
+  <!-- Centred column — the only thing on screen -->
+  <div class="centre-col">
+
+    <!-- Mode toggle: Stopwatch | Timer -->
+    <div class="mode-toggle fade-for-large">
+      <button class="mode-btn active" id="mode-sw">Stopwatch</button>
+      <button class="mode-btn"        id="mode-tm">Timer</button>
+    </div>
+
+    <!-- Active subject badge -->
+    <div class="active-badge fade-for-large" id="active-badge">—</div>
+
+    <!-- Timer input (timer mode only) -->
+    <div class="timer-input-row hidden-soft fade-for-large" id="timer-input-row">
+      <div class="time-field-wrap">
+        <input class="time-field" id="t-min" type="number" min="0" max="99" value="25" placeholder="00"/>
+        <div class="time-field-lbl">min</div>
+      </div>
+      <div class="time-sep">:</div>
+      <div class="time-field-wrap">
+        <input class="time-field" id="t-sec" type="number" min="0" max="59" value="00" placeholder="00"/>
+        <div class="time-field-lbl">sec</div>
+      </div>
+    </div>
+
+    <!-- Clock display — primary focus -->
+    <div class="clock-row">
+      <div class="clock" id="clock">00:00</div>
+      <div class="ms"    id="ms">.00</div>
+    </div>
+
+    <!-- Action row: [Subject ○]  [Start]  [○ Stats] -->
+    <div class="action-row fade-for-large">
+
+      <!-- Subject selector — placeholder keeps flex layout; real visuals in #orbit-anchor (fixed, JS-positioned) -->
+      <div class="subject-orbit" id="subject-orbit">
+        <!-- Visual anchor injected & positioned by buildSubjects() -->
+      </div>
+
+      <!-- Primary start button -->
+      <button class="ctrl" id="btn-start">Start</button>
+
+      <!-- Stats icon button -->
+      <button class="stats-icon-btn" id="btn-stats" aria-label="View stats">
+        <svg width="17" height="14" viewBox="0 0 17 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect x="0"  y="9"  width="3" height="5"  rx="1" fill="currentColor"/>
+          <rect x="4.5" y="5" width="3" height="9"  rx="1" fill="currentColor"/>
+          <rect x="9"  y="2"  width="3" height="12" rx="1" fill="currentColor"/>
+          <rect x="13.5" y="0" width="3" height="14" rx="1" fill="currentColor"/>
+        </svg>
+      </button>
+
+    </div>
+
+    <!-- Size controls (M / L) — directly under action row -->
+    <div class="size-row fade-for-large">
+      <button class="size-btn active" data-size="md">M</button>
+      <button class="size-btn"        data-size="lg">L</button>
+    </div>
+
+    <!-- Secondary controls: Lap · Reset · Log -->
+    <div class="secondary-controls fade-for-large">
+      <button class="ctrl ghost" id="btn-lap"   disabled>Lap</button>
+      <button class="ctrl ghost" id="btn-reset" disabled>Reset</button>
+      <button class="ctrl ghost" id="btn-log"   disabled>Log</button>
+    </div>
+
+  </div><!-- /centre-col -->
+
+</div>
+<div class="lg-exit-hint" id="lg-exit-hint">×</div>
+
+<!-- ════════════════════════════════════════════
+     STATS PAGE
+     ════════════════════════════════════════════ -->
+<div class="page hidden" id="page-stats">
+  <div class="stats-inner">
+
+    <!-- Header row -->
+    <div class="stats-header">
+      <button id="btn-back">← Back</button>
+      <div class="stats-title">Study Stats</div>
+      <button id="btn-add-session">+ Add</button>
+      <button id="btn-export">↓ Export Excel</button>
+      <button id="btn-clear-data">✕ Clear Data</button>
+    </div>
+
+    <!-- Insight cards -->
+    <div class="insight-row" id="insight-row"></div>
+
+    <!-- This week chart -->
+    <div class="s-section">
+      <div class="s-title">This week</div>
+      <canvas class="chart-canvas" id="chart-week" height="160"></canvas>
+    </div>
+
+    <!-- Time of day -->
+    <div class="s-section">
+      <div class="s-title">Time of day</div>
+      <canvas class="chart-canvas" id="chart-tod" height="110"></canvas>
+    </div>
+
+    <!-- By subject -->
+    <div class="s-section">
+      <div class="s-title">By subject — all time</div>
+      <div id="subj-breakdown"></div>
+    </div>
+
+    <!-- Patterns -->
+    <div class="s-section">
+      <div class="s-title">Patterns found</div>
+      <div class="pattern-chips" id="patterns"></div>
+    </div>
+
+    <!-- Session log -->
+    <div class="s-section">
+      <div class="s-title">Session log (last 60)</div>
+      <table class="log-table">
+        <thead><tr><th>Subject</th><th>Date</th><th>Duration</th><th></th></tr></thead>
+        <tbody id="log-tbody"></tbody>
+      </table>
+    </div>
+
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════
+     MANUAL ENTRY PANEL
+     ════════════════════════════════════════════ -->
+<div id="manual-scrim"></div>
+<div id="manual-panel">
+  <div class="mp-header">
+    <div class="mp-title">Add Session</div>
+    <button id="mp-close">✕ Close</button>
+  </div>
+  <div class="mp-body">
+
+    <!-- Subject -->
+    <div class="mp-field">
+      <div class="mp-label">Subject</div>
+      <div class="mp-subjects" id="mp-subjects"></div>
+    </div>
+
+    <!-- Duration -->
+    <div class="mp-field">
+      <div class="mp-label">Duration</div>
+      <div class="mp-dur-row">
+        <div class="time-field-wrap">
+          <input class="time-field mp-input" id="mp-hours" type="number" min="0" max="23" value="0" placeholder="0"/>
+          <div class="time-field-lbl">hrs</div>
+        </div>
+        <div class="time-sep">:</div>
+        <div class="time-field-wrap">
+          <input class="time-field mp-input" id="mp-min" type="number" min="0" max="59" value="30" placeholder="0"/>
+          <div class="time-field-lbl">min</div>
+        </div>
+        <div class="time-sep">:</div>
+        <div class="time-field-wrap">
+          <input class="time-field mp-input" id="mp-sec" type="number" min="0" max="59" value="0" placeholder="0"/>
+          <div class="time-field-lbl">sec</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Date -->
+    <div class="mp-field">
+      <div class="mp-label">Date</div>
+      <input class="mp-input" id="mp-date" type="date"/>
+    </div>
+
+    <!-- Time of day -->
+    <div class="mp-field">
+      <div class="mp-label">Time of day (approx.)</div>
+      <input class="mp-input" id="mp-time" type="time" value="09:00"/>
+    </div>
+
+    <button id="mp-save">Save Session</button>
+  </div>
+</div>
+
+<script>
+/* ════ CONSTANTS ════ */
+const SUBJECTS = [
+  {name:'Maths',         color:'#f87171', dim:'#f8717120', mid:'#f8717155', bg1:'#7f1d1d', bg2:'#450a0a', bg3:'#991b1b'},
+  {name:'English',       color:'#9ca3af', dim:'#9ca3af20', mid:'#9ca3af55', bg1:'#1f2937', bg2:'#111827', bg3:'#374151'},
+  {name:'AP Maths',      color:'#fb923c', dim:'#fb923c20', mid:'#fb923c55', bg1:'#7c2d12', bg2:'#431407', bg3:'#9a3412'},
+  {name:'Economics',     color:'#34d399', dim:'#34d39920', mid:'#34d39955', bg1:'#064e3b', bg2:'#022c22', bg3:'#065f46'},
+  {name:'French',        color:'#4ade80', dim:'#4ade8020', mid:'#4ade8055', bg1:'#14532d', bg2:'#052e16', bg3:'#166534'},
+  {name:'DCG',           color:'#60a5fa', dim:'#60a5fa20', mid:'#60a5fa55', bg1:'#1e3a5f', bg2:'#0c1f3a', bg3:'#1d4ed8'},
+  {name:'Comp. Science', color:'#38bdf8', dim:'#38bdf820', mid:'#38bdf855', bg1:'#0c4a6e', bg2:'#082f49', bg3:'#0369a1'},
+  {name:'Physics',       color:'#c084fc', dim:'#c084fc20', mid:'#c084fc55', bg1:'#4a1d96', bg2:'#2e1065', bg3:'#6d28d9'},
+];
+const DAYS      = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const DAY_ORDER = [1,2,3,4,5,6,0]; // Mon → Sun
+const SK        = 'studytimer_v2'; // storage key
+
+/* ════ STATE ════ */
+let currentSubject = null;
+let startTime = 0, elapsed = 0;
+let running = false, animFrame = null, lapAccum = 0, laps = [];
+let subjectStartElapsed = 0; // elapsed ms when current subject was selected
+
+/* ════ STORAGE ════ */
+function loadSessions() {
+  try { return JSON.parse(localStorage.getItem(SK) || '[]'); } catch { return []; }
+}
+function saveSession(e) {
+  const s = loadSessions(); s.unshift(e);
+  if (s.length > 1000) s.length = 1000;
+  localStorage.setItem(SK, JSON.stringify(s));
+}
+
+/* One-time migration from old week-keyed format */
+function migrateOld() {
+  if (loadSessions().length) return;
+  const old = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k && k.startsWith('sw3_')) {
+      try { old.push(...JSON.parse(localStorage.getItem(k) || '[]')); } catch {}
+    }
+  }
+  if (!old.length) return;
+  old.sort((a,b) => b.ts - a.ts);
+  old.forEach(s => { if (s.hour === undefined) s.hour = 12; });
+  localStorage.setItem(SK, JSON.stringify(old.slice(0,1000)));
+}
+migrateOld();
+
+/* ════ FORMAT HELPERS ════ */
+function fmt(ms) {
+  const s = Math.floor(ms/1000);
+  return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');
+}
+function fmtMs(ms) { return '.'+String(Math.floor((ms%1000)/10)).padStart(2,'0'); }
+function fmtHm(ms) {
+  const m = Math.floor(ms/60000);
+  if (!m) return '0m';
+  if (m < 60) return m+'m';
+  return Math.floor(m/60)+'h'+(m%60?' '+(m%60)+'m':'');
+}
+
+/* ════ THEME ════ */
+function applyTheme(s) {
+  const r = document.documentElement;
+  if (!s) {
+    r.style.setProperty('--accent','#a855f7');
+    r.style.setProperty('--dim','rgba(168,85,247,0.12)');
+    r.style.setProperty('--mid','rgba(168,85,247,0.35)');
+    r.style.setProperty('--glow','#a855f7');
+    r.style.setProperty('--bg-c1','#5b21b6');
+    r.style.setProperty('--bg-c2','#9d174d');
+    r.style.setProperty('--bg-c3','#3b0764');
+  } else {
+    r.style.setProperty('--accent',s.color);
+    r.style.setProperty('--dim',s.dim);
+    r.style.setProperty('--mid',s.mid);
+    r.style.setProperty('--glow',s.color);
+    r.style.setProperty('--bg-c1',s.bg1);
+    r.style.setProperty('--bg-c2',s.bg2);
+    r.style.setProperty('--bg-c3',s.bg3);
+  }
+}
+
+/* ════ SUBJECTS ════ */
+function logCurrentSegment() {
+  // Works in both modes:
+  // sw mode  → uses elapsed (stopwatch ms)
+  // tm mode  → uses fillElapsedMs (timer ms consumed so far)
+  const totalElapsed = appMode === 'tm' ? fillElapsedMs : elapsed;
+  if (totalElapsed === 0 && !running) return;
+  const segMs = totalElapsed - subjectStartElapsed;
+  if (segMs < 1000) return;
+  const now = new Date();
+  saveSession({
+    ms:       segMs,
+    subject:  currentSubject ? currentSubject.name  : 'General',
+    color:    currentSubject ? currentSubject.color  : '#555',
+    dayIndex: now.getDay(),
+    date:     now.toLocaleDateString('en-IE',{weekday:'short',month:'short',day:'numeric'}),
+    ts:       Date.now(),
+    hour:     now.getHours(),
+  });
+  showToast(`<span class="toast-accent">✓</span> Logged ${fmt(segMs)} · ${currentSubject ? currentSubject.name : 'General'}`);
+  subjectStartElapsed = totalElapsed;
+}
+
+function buildSubjects() {
+  const placeholder = document.getElementById('subject-orbit');
+  const scrim       = document.getElementById('orbit-scrim');
+
+  /* ══════════════════════════════════════════
+     Build the fixed DOM tree once
+     ══════════════════════════════════════════ */
+
+  // Remove any previous anchor from a prior call
+  const oldAnchor = document.getElementById('orbit-anchor');
+  if (oldAnchor) oldAnchor.remove();
+
+  // #orbit-anchor — fixed positioned, mirrors placeholder coords
+  const anchor = document.createElement('div');
+  anchor.id = 'orbit-anchor';
+
+  // #orbit-shell — the clipping capsule that morphs
+  const shell = document.createElement('div');
+  shell.id = 'orbit-shell';
+
+  // #orbit-btn — the gradient surface inside the shell
+  const btn = document.createElement('button');
+  btn.id = 'orbit-btn';
+  btn.setAttribute('aria-label', 'Select subject');
+
+  // #subject-dropdown — the list, sibling of shell inside anchor
+  const dropdown = document.createElement('div');
+  dropdown.id = 'subject-dropdown';
+
+  shell.appendChild(btn);
+  anchor.appendChild(shell);
+  anchor.appendChild(dropdown);
+  document.body.appendChild(anchor);
+
+  // Position immediately (rAF ensures layout is ready)
+  requestAnimationFrame(syncAnchor);
+  // Re-sync after fonts/images finish (can shift layout)
+  window.addEventListener('load', syncAnchor);
+  window.addEventListener('scroll', syncAnchor, { passive: true });
+
+  /* ══════════════════════════════════════════
+     Sync anchor position to placeholder
+     ══════════════════════════════════════════ */
+  function syncAnchor() {
+    const r = placeholder.getBoundingClientRect();
+    anchor.style.width  = r.width  + 'px';
+    anchor.style.height = r.height + 'px';
+    anchor.style.left   = r.left   + 'px';
+    anchor.style.top    = r.top    + 'px';
+    anchor.classList.add('synced'); // reveal once positioned
+  }
+
+  /* ══════════════════════════════════════════
+     Usage stats
+     ══════════════════════════════════════════ */
+  function getTimeMap() {
+    const sessions = loadSessions();
+    const map = {};
+    sessions.forEach(s => { map[s.subject] = (map[s.subject] || 0) + s.ms; });
+    return map;
+  }
+
+  function fmtUsage(ms) {
+    if (!ms) return '';
+    const m = Math.floor(ms / 60000);
+    if (m < 1)  return '<1m';
+    if (m < 60) return m + 'm';
+    const h = Math.floor(m / 60), r = m % 60;
+    return h + 'h' + (r ? r + 'm' : '');
+  }
+
+  /* ══════════════════════════════════════════
+     Render subject list into dropdown
+     ══════════════════════════════════════════ */
+  let allRows = [];
+
+  function renderList() {
+    dropdown.innerHTML = '';
+    allRows = [];
+    const timeMap = getTimeMap();
+
+    const sorted   = [...SUBJECTS].sort((a, b) => (timeMap[b.name] || 0) - (timeMap[a.name] || 0));
+    const topPicks = sorted.filter(s => timeMap[s.name] > 0).slice(0, 3);
+    const rest     = sorted.filter(s => !topPicks.includes(s));
+
+    function makeRow(s) {
+      const b = document.createElement('button');
+      b.className = 'dd-item';
+      if (currentSubject && currentSubject.name === s.name) b.classList.add('dd-active');
+      b.style.setProperty('--item-color', s.color);
+      const usage = fmtUsage(timeMap[s.name] || 0);
+      b.innerHTML = `
+        <span class="dd-bar" style="background:${s.color}"></span>
+        <span class="dd-name">${s.name}</span>
+        ${usage ? `<span class="dd-stat">${usage}</span>` : ''}
+      `;
+      b.addEventListener('click', () => selectSubject(s));
+      return b;
+    }
+
+    function addLabel(text) {
+      const l = document.createElement('div');
+      l.className = 'dd-section-label';
+      l.textContent = text;
+      dropdown.appendChild(l);
+    }
+
+    function addDivider() {
+      const d = document.createElement('div');
+      d.className = 'dd-divider';
+      dropdown.appendChild(d);
+    }
+
+    if (topPicks.length) {
+      addLabel('Top picks');
+      topPicks.forEach(s => { const r = makeRow(s); dropdown.appendChild(r); allRows.push(r); });
+    }
+
+    if (topPicks.length && rest.length) addDivider();
+
+    if (rest.length) {
+      if (topPicks.length) addLabel('All subjects');
+      rest.forEach(s => { const r = makeRow(s); dropdown.appendChild(r); allRows.push(r); });
+    }
+
+    if (!topPicks.length && !rest.length) {
+      sorted.forEach(s => { const r = makeRow(s); dropdown.appendChild(r); allRows.push(r); });
+    }
+
+    // Clear row
+    if (currentSubject) {
+      addDivider();
+      const clr = document.createElement('button');
+      clr.className = 'dd-clear';
+      clr.textContent = '✕  clear subject';
+      clr.addEventListener('click', () => {
+        lockedClosed = true;
+        if (running || (appMode === 'tm' ? fillElapsedMs : elapsed) > 0) logCurrentSegment();
+        currentSubject = null; applyTheme(null);
+        const badge = document.getElementById('active-badge');
+        badge.textContent = '—'; badge.classList.remove('shown');
+        btn.style.removeProperty('box-shadow');
+        subjectStartElapsed = appMode === 'tm' ? fillElapsedMs : elapsed;
+        closeDropdown(true);
+      });
+      dropdown.appendChild(clr);
+      allRows.push(clr);
+    }
+  }
+
+  /* ══════════════════════════════════════════
+     Subject selection
+     ══════════════════════════════════════════ */
+  function selectSubject(s) {
+    lockedClosed = true;
+    if (running || (appMode === 'tm' ? fillElapsedMs : elapsed) > 0) logCurrentSegment();
+    const badge = document.getElementById('active-badge');
+    currentSubject = s; applyTheme(s);
+    badge.textContent = s.name; badge.classList.add('shown');
+    btn.style.boxShadow = `0 0 24px ${s.color}55, 0 0 5px rgba(0,0,0,.6)`;
+    subjectStartElapsed = appMode === 'tm' ? fillElapsedMs : elapsed;
+    closeDropdown(true);
+  }
+
+  /* ══════════════════════════════════════════
+     Compute line height: enough to span all rows
+     ══════════════════════════════════════════ */
+  function calcLineHeight() {
+    // Measure rendered list height; add a comfortable margin
+    const h = dropdown.scrollHeight;
+    return Math.max(h + 16, 200);
+  }
+
+  /* ══════════════════════════════════════════
+     Open / Close
+     ══════════════════════════════════════════ */
+  let closeTimer   = null;
+  let isOpen       = false;
+  let lockedClosed = false; // prevents hover re-opening after a deliberate close
+
+  function openDropdown() {
+    clearTimeout(closeTimer); closeTimer = null;
+    if (isOpen || lockedClosed) return;
+    isOpen = true;
+
+    syncAnchor();
+    renderList();
+
+    const lineH = calcLineHeight();
+    shell.style.setProperty('--line-height', lineH + 'px');
+
+    anchor.classList.add('anchor-live');
+    scrim.classList.add('active');
+
+    shell.style.transitionProperty      = 'width, border-radius, height, box-shadow';
+    shell.style.transitionDuration      = '.2s, .2s, .26s, .26s';
+    shell.style.transitionTimingFunction = 'cubic-bezier(.55,0,.1,1), cubic-bezier(.55,0,.1,1), cubic-bezier(.4,0,.2,1), ease';
+    shell.style.transitionDelay         = '0s, 0s, .05s, 0s';
+
+    shell.getBoundingClientRect();
+    shell.style.width        = '4px';
+    shell.style.height       = lineH + 'px';
+    shell.style.borderRadius = '2px';
+
+    allRows.forEach(r => r.classList.add('dd-visible'));
+
+    // Build cache immediately using current rects so pointermove never
+    // sees a null cache and wrongly schedules close during the animation.
+    // Rebuild again once transition settles so the dropdown rect is final.
+    buildZoneCache();
+    setTimeout(buildZoneCache, 300);
+  }
+
+  function closeDropdown(immediate) {
+    clearTimeout(closeTimer); closeTimer = null;
+    if (!isOpen) return;
+    isOpen = false;
+
+    // Fade dropdown out immediately — in sync with shell collapse
+    anchor.classList.add('closing');
+    allRows.forEach(r => r.classList.remove('dd-visible'));
+
+    const doCollapse = () => {
+      scrim.classList.remove('active');
+
+      shell.style.transitionProperty      = 'height, width, border-radius, box-shadow';
+      shell.style.transitionDuration      = '.18s, .2s, .2s, .2s';
+      shell.style.transitionTimingFunction = 'cubic-bezier(.4,0,.6,1), cubic-bezier(.4,0,.6,1), cubic-bezier(.4,0,.6,1), ease';
+      shell.style.transitionDelay         = '0s, .04s, .04s, 0s';
+
+      shell.getBoundingClientRect();
+      shell.style.width        = '52px';
+      shell.style.height       = '52px';
+      shell.style.borderRadius = '26px';
+
+      setTimeout(() => {
+        anchor.classList.remove('anchor-live');
+        anchor.classList.remove('closing');
+        lockedClosed = false;
+        zoneCache = null; // clear rect cache
+      }, 260);
+    };
+
+    doCollapse(); // always immediate — dropdown already fading
+  }
+
+  function scheduleClose() {
+    if (closeTimer) return; // already scheduled
+    closeTimer = setTimeout(() => {
+      closeTimer = null;
+      closeDropdown(false);
+    }, 220);
+  }
+
+  /* ══════════════════════════════════════════
+     Hover — single pointermove zone check.
+     No element-level mouseenter/mouseleave:
+     those create unavoidable race conditions
+     when the shell is 4px wide and there is
+     a gap before the dropdown.
+     ══════════════════════════════════════════ */
+
+  const BUF = 22; // px buffer around each element
+  let zoneCache = null; // cached rects, refreshed on open
+
+  function buildZoneCache() {
+    zoneCache = {
+      ph: placeholder.getBoundingClientRect(),
+      sh: shell.getBoundingClientRect(),
+      dd: dropdown.getBoundingClientRect(),
+    };
+  }
+
+  function ptrInZone(x, y) {
+    if (!zoneCache) return false;
+    const { ph, sh, dd } = zoneCache;
+
+    if (x >= ph.left-BUF && x <= ph.right+BUF && y >= ph.top-BUF && y <= ph.bottom+BUF) return true;
+    if (x >= sh.left-BUF && x <= sh.right+BUF && y >= sh.top-BUF && y <= sh.bottom+BUF) return true;
+    if (x >= dd.left-BUF && x <= dd.right+BUF && y >= dd.top-BUF && y <= dd.bottom+BUF) return true;
+
+    // Fill the gap between shell right edge and dropdown left edge
+    const gapL = sh.right, gapR = dd.left;
+    if (gapR > gapL &&
+        x >= gapL-BUF && x <= gapR+BUF &&
+        y >= Math.min(sh.top, dd.top)-BUF &&
+        y <= Math.max(sh.bottom, dd.bottom)+BUF) return true;
+
+    return false;
+  }
+
+  // Open on circle hover
+  placeholder.addEventListener('mouseenter', openDropdown);
+
+  // Single document-level tracker — only active cost when open
+  document.addEventListener('pointermove', e => {
+    if (!isOpen) return;
+    if (ptrInZone(e.clientX, e.clientY)) {
+      clearTimeout(closeTimer); closeTimer = null;
+    } else {
+      // Don't spam scheduleClose on every move outside zone
+      if (!closeTimer) scheduleClose();
+    }
+  }, { passive: true });
+
+  // Click outside closes immediately
+  document.addEventListener('click', e => {
+    if (!isOpen) return;
+    if (anchor.contains(e.target) || placeholder.contains(e.target)) return;
+    closeDropdown(true);
+  }, { capture: true });
+
+  // Re-sync on resize/scroll
+  window.addEventListener('resize', () => { syncAnchor(); if (isOpen) buildZoneCache(); });
+
+  // Expose so nav handlers can close on page change
+  window._closeOrbit = () => { if (isOpen) closeDropdown(true); };
+
+} // end buildSubjects
+
+
+/* ════ SIZE CONTROLS ════ */
+let currentSize = 'md';
+function applySize(size) {
+  document.querySelectorAll('.size-btn').forEach(x => x.classList.remove('active'));
+  const activeBtn = document.querySelector(`.size-btn[data-size="${size}"]`);
+  if (activeBtn) activeBtn.classList.add('active');
+
+  if (size === 'lg') {
+    if (currentSize === 'lg') {
+      document.body.className = 'size-md';
+      currentSize = 'md';
+      document.querySelector('.size-btn[data-size="md"]').classList.add('active');
+      if (activeBtn) activeBtn.classList.remove('active');
+      return;
+    }
+    document.body.className = 'size-lg-full';
+    // Close the orbit selector if open when entering large mode
+    const anchor = document.getElementById('orbit-anchor');
+    if (anchor && anchor.classList.contains('anchor-live')) {
+      anchor.classList.add('closing');
+      anchor.classList.remove('anchor-live');
+      setTimeout(() => { anchor.classList.remove('closing'); }, 260);
+    }
+  } else {
+    document.body.className = 'size-' + size;
+  }
+  currentSize = size;
+}
+
+document.querySelectorAll('.size-btn').forEach(btn => {
+  btn.addEventListener('click', () => applySize(btn.dataset.size));
+});
+
+// Exit hint click
+document.getElementById('lg-exit-hint').addEventListener('click', () => applySize('md'));
+
+// ESC key exits large mode
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && currentSize === 'lg') applySize('md');
+});
+
+/* ════ MODE ════ */
+let appMode = 'sw'; // 'sw' | 'tm'
+const modeSw = document.getElementById('mode-sw');
+const modeTm = document.getElementById('mode-tm');
+const timerInputRow = document.getElementById('timer-input-row');
+const msEl = document.getElementById('ms');
+
+function setMode(m) {
+  appMode = m;
+  resetAll();
+  modeSw.classList.toggle('active', m === 'sw');
+  modeTm.classList.toggle('active', m === 'tm');
+  timerInputRow.classList.toggle('hidden-soft', m === 'sw');
+  msEl.style.display = m === 'tm' ? 'none' : '';
+  document.getElementById('btn-lap').style.display = m === 'tm' ? 'none' : '';
+}
+modeSw.addEventListener('click', () => setMode('sw'));
+modeTm.addEventListener('click', () => setMode('tm'));
+
+/* ════════════════════════════════════════════
+   CANVAS FILL SYSTEM
+   ════════════════════════════════════════════ */
+const fillCanvas = document.getElementById('fill-canvas');
+const fillCtx    = fillCanvas.getContext('2d');
+const CELL_SIZE  = 40;
+let fillGrid     = [];
+let fillTotalMs  = 0;
+let fillElapsedMs = 0;
+let fillPauseTime = 0;
+let fillRunning   = false;
+let fillCols = 0, fillRows = 0;
+
+function buildFillGrid(totalMs) {
+  fillCanvas.width  = window.innerWidth;
+  fillCanvas.height = window.innerHeight;
+  fillCols = Math.ceil(fillCanvas.width  / CELL_SIZE);
+  fillRows = Math.ceil(fillCanvas.height / CELL_SIZE);
+  fillCtx.clearRect(0, 0, fillCanvas.width, fillCanvas.height);
+
+  // Fill column by column left→right, top→bottom within each column
+  const cells = [];
+  const total = fillCols * fillRows;
+  let idx = 0;
+  for (let col = 0; col < fillCols; col++) {
+    for (let row = 0; row < fillRows; row++) {
+      // rgb is null until the cell becomes visible — snapshotted at that moment
+      cells.push({ col, row, fillAt: (idx / total) * totalMs, rgb: null });
+      idx++;
+    }
+  }
+  fillGrid = cells;
+  fillLastPainted = -1; // index of last cell we painted
+}
+
+// Track which cells have already been painted so we never repaint them
+let fillLastPainted = -1;
+
+function paintFillCell(cell) {
+  const gap = 2;
+  fillCtx.fillStyle = `rgba(${cell.rgb},0.55)`;
+  fillCtx.beginPath();
+  fillCtx.roundRect(
+    cell.col * CELL_SIZE + gap,
+    cell.row * CELL_SIZE + gap,
+    CELL_SIZE - gap * 2,
+    CELL_SIZE - gap * 2,
+    4
+  );
+  fillCtx.fill();
+}
+
+function drawFill(elapsedMs) {
+  // Only paint newly-revealed cells — never clear, never repaint old ones
+  for (let i = fillLastPainted + 1; i < fillGrid.length; i++) {
+    const cell = fillGrid[i];
+    if (cell.fillAt > elapsedMs) break;
+    // Snapshot the current accent colour at the moment this cell is revealed
+    if (cell.rgb === null) cell.rgb = getAccentRgb();
+    paintFillCell(cell);
+    fillLastPainted = i;
+  }
+}
+
+function getAccentRgb() {
+  const hex = getComputedStyle(document.documentElement)
+    .getPropertyValue('--accent').trim() || '#a855f7';
+  const m = hex.match(/^#([0-9a-f]{6})$/i);
+  if (!m) return '168,85,247';
+  const n = parseInt(m[1], 16);
+  return `${(n>>16)&255},${(n>>8)&255},${n&255}`;
+}
+
+/* ════ TOAST ════ */
+let toastTimer = null;
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.innerHTML = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2600);
+}
+
+/* ════════════════════════════════════════════
+   STOPWATCH CUBES — accumulate over time
+   One new cube appears roughly every N seconds,
+   placed at a random free grid position.
+   All drawing is on a single canvas, redrawn
+   paint-and-forget: cubes are baked onto the canvas permanently
+   the moment they finish fading in. No full clear ever happens
+   during a session, so old subject colours are preserved as pixels.
+   ════════════════════════════════════════════ */
+const swCanvas  = document.getElementById('sw-canvas');
+const swCtx     = swCanvas.getContext('2d');
+const SW_CELL   = 44;    // cube size px
+const SW_RATE   = 8000;  // ms before a new cube appears
+let   swGrid    = new Set();   // "col,row" occupied
+let   swFading  = [];          // cubes still fading in [{col,row,alpha,rgb}]
+let   swCols = 0, swRows = 0;
+
+function swResize() {
+  // Resizing clears canvas — unavoidable, but rare
+  swCanvas.width  = window.innerWidth;
+  swCanvas.height = window.innerHeight;
+  swCols = Math.floor(swCanvas.width  / SW_CELL);
+  swRows = Math.floor(swCanvas.height / SW_CELL);
+  // Redraw all baked cubes (stored in swGrid data)
+  // We track baked cubes separately for resize recovery
+  for (const entry of swBaked) swPaintCube(entry.col, entry.row, entry.rgb, 1);
+  for (const c of swFading)    swPaintCube(c.col, c.row, c.rgb, c.alpha);
+}
+
+// Permanent record of fully-baked cubes for resize recovery
+let swBaked = [];
+
+function swPaintCube(col, row, rgb, alpha) {
+  const gap = 3;
+  swCtx.clearRect(col * SW_CELL, row * SW_CELL, SW_CELL, SW_CELL);
+  swCtx.fillStyle = `rgba(${rgb},${0.08 + alpha * 0.22})`;
+  swCtx.beginPath();
+  swCtx.roundRect(col * SW_CELL + gap, row * SW_CELL + gap,
+    SW_CELL - gap * 2, SW_CELL - gap * 2, 5);
+  swCtx.fill();
+  swCtx.strokeStyle = `rgba(${rgb},${alpha * 0.18})`;
+  swCtx.lineWidth = 1;
+  swCtx.stroke();
+}
+
+function swAddCube() {
+  const free = [];
+  for (let c = 0; c < swCols; c++)
+    for (let r = 0; r < swRows; r++)
+      if (!swGrid.has(`${c},${r}`)) free.push([c, r]);
+  if (!free.length) return;
+  const [c, r] = free[Math.floor(Math.random() * free.length)];
+  swGrid.add(`${c},${r}`);
+  swFading.push({ col: c, row: r, alpha: 0, rgb: getAccentRgb() });
+}
+
+function swFadeTick() {
+  // Animate fading cubes; bake them once fully opaque
+  const stillFading = [];
+  for (const cube of swFading) {
+    cube.alpha = Math.min(1, cube.alpha + 0.035);
+    swPaintCube(cube.col, cube.row, cube.rgb, cube.alpha);
+    if (cube.alpha < 1) {
+      stillFading.push(cube);
+    } else {
+      swBaked.push({ col: cube.col, row: cube.row, rgb: cube.rgb });
+    }
+  }
+  swFading = stillFading;
+}
+
+function swCubesTick() {
+  if (appMode !== 'sw' || !running) return;
+  const shouldHave = swGrid.size + swFading.length;
+  const target = Math.floor(elapsed / SW_RATE);
+  if (swGrid.size + swFading.length < target) swAddCube();
+  swFadeTick();
+}
+
+function swReset() {
+  swGrid = new Set(); swFading = []; swBaked = [];
+  swCtx.clearRect(0, 0, swCanvas.width, swCanvas.height);
+  swCanvas.classList.remove('active');
+}
+
+window.addEventListener('resize', () => {
+  swResize();
+  if (appMode === 'tm' && fillTotalMs > 0) {
+    const prev = fillElapsedMs;
+    buildFillGrid(fillTotalMs);
+    fillElapsedMs = prev;
+    drawFill(fillElapsedMs);
+  }
+});
+swCanvas.width  = window.innerWidth;
+swCanvas.height = window.innerHeight;
+swCols = Math.floor(swCanvas.width  / SW_CELL);
+swRows = Math.floor(swCanvas.height / SW_CELL);
+
+/* ════ STOPWATCH TICK ════ */
+function tick() {
+  elapsed = Date.now() - startTime;
+  document.getElementById('clock').textContent = fmt(elapsed);
+  document.getElementById('ms').textContent    = fmtMs(elapsed);
+  swCubesTick();
+  animFrame = requestAnimationFrame(tick);
+}
+
+/* ════ TIMER COMPLETION ════ */
+let timerTotalMs = 0;
+
+function onTimerComplete() {
+  fillRunning = false; running = false;
+  cancelAnimationFrame(animFrame);
+  document.getElementById('clock').textContent = '00:00';
+
+  // Flash pulse
+  const clockRow = document.querySelector('.clock-row');
+  clockRow.classList.add('completion-flash');
+  clockRow.addEventListener('animationend', () => clockRow.classList.remove('completion-flash'), {once:true});
+
+  // Save session
+  const now = new Date();
+  saveSession({
+    ms:       timerTotalMs,
+    subject:  currentSubject ? currentSubject.name  : 'General',
+    color:    currentSubject ? currentSubject.color  : '#555',
+    dayIndex: now.getDay(),
+    date:     now.toLocaleDateString('en-IE',{weekday:'short',month:'short',day:'numeric'}),
+    ts:       Date.now(),
+    hour:     now.getHours(),
+  });
+
+  const btn = document.getElementById('btn-start');
+  btn.textContent = 'Start'; btn.classList.remove('paused');
+  document.getElementById('btn-reset').disabled = false;
+}
+
+/* ════ SHARED RESET ════ */
+function resetAll() {
+  cancelAnimationFrame(animFrame);
+  running = false; elapsed = 0; lapAccum = 0; laps = [];
+  subjectStartElapsed = 0;
+  fillRunning = false; fillElapsedMs = 0;
+  fillLastPainted = -1;
+  fillGrid.forEach(c => c.rgb = null);
+  if (fillCanvas) {
+    fillCtx.clearRect(0, 0, fillCanvas.width, fillCanvas.height);
+    fillCanvas.classList.remove('active');
+  }
+  swReset();
+  document.getElementById('clock').textContent =
+    (appMode === 'tm') ? formatTimerInput() : '00:00';
+  if (appMode === 'sw') document.getElementById('ms').textContent = '.00';
+  const btn = document.getElementById('btn-start');
+  btn.textContent = 'Start'; btn.classList.remove('paused');
+  document.getElementById('btn-lap').disabled   = true;
+  document.getElementById('btn-reset').disabled = true;
+  document.getElementById('btn-log').disabled   = true;
+  if (appMode === 'tm' && timerInputRow) timerInputRow.classList.remove('hidden-soft');
+}
+
+function formatTimerInput() {
+  const m = parseInt(document.getElementById('t-min').value) || 0;
+  const s = parseInt(document.getElementById('t-sec').value) || 0;
+  return String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
+}
+
+['t-min','t-sec'].forEach(id => {
+  document.getElementById(id).addEventListener('input', () => {
+    if (appMode === 'tm' && !running)
+      document.getElementById('clock').textContent = formatTimerInput();
+  });
+});
+
+/* ════ START / PAUSE ════ */
+document.getElementById('btn-start').addEventListener('click', () => {
+  const btn = document.getElementById('btn-start');
+
+  if (appMode === 'sw') {
+    if (!running) {
+      startTime = Date.now() - elapsed; running = true;
+      if (elapsed === 0) subjectStartElapsed = 0; // fresh start
+      btn.textContent = 'Pause'; btn.classList.remove('paused');
+      document.getElementById('btn-lap').disabled   = false;
+      document.getElementById('btn-reset').disabled = false;
+      document.getElementById('btn-log').disabled   = false;
+      swCanvas.classList.add('active');
+      animFrame = requestAnimationFrame(tick);
+    } else {
+      cancelAnimationFrame(animFrame); running = false;
+      btn.textContent = 'Resume'; btn.classList.add('paused');
+      document.getElementById('btn-lap').disabled = true;
+    }
+    return;
+  }
+
+  /* ── Timer mode ── */
+  if (!running) {
+    if (fillElapsedMs === 0) {
+      const m = Math.max(0, parseInt(document.getElementById('t-min').value) || 0);
+      const s = Math.max(0, Math.min(59, parseInt(document.getElementById('t-sec').value) || 0));
+      timerTotalMs = (m * 60 + s) * 1000;
+      if (!timerTotalMs) return;
+      fillTotalMs = timerTotalMs;
+      buildFillGrid(fillTotalMs);
+      timerInputRow.classList.add('hidden-soft');
+    }
+    running = true; fillRunning = true;
+    btn.textContent = 'Pause'; btn.classList.remove('paused');
+    document.getElementById('btn-reset').disabled = false;
+    document.getElementById('btn-log').disabled   = false;
+    fillCanvas.classList.add('active');
+    fillPauseTime = Date.now() - fillElapsedMs;
+
+    (function timerLoop() {
+      if (!fillRunning) return;
+      fillElapsedMs = Date.now() - fillPauseTime;
+      if (fillElapsedMs >= fillTotalMs) {
+        fillElapsedMs = fillTotalMs;
+        drawFill(fillElapsedMs);
+        document.getElementById('clock').textContent = '00:00';
+        onTimerComplete();
+        return;
+      }
+      drawFill(fillElapsedMs);
+      document.getElementById('clock').textContent =
+        fmt(Math.max(0, timerTotalMs - fillElapsedMs));
+      animFrame = requestAnimationFrame(timerLoop);
+    })();
+  } else {
+    fillRunning = false; running = false;
+    cancelAnimationFrame(animFrame);
+    btn.textContent = 'Resume'; btn.classList.add('paused');
+  }
+});
+
+/* ════ LAP ════ */
+document.getElementById('btn-lap').addEventListener('click', () => {
+  const lapMs = elapsed - lapAccum; lapAccum = elapsed;
+  const now = new Date();
+  const entry = {
+    ms:       lapMs,
+    subject:  currentSubject ? currentSubject.name  : 'General',
+    color:    currentSubject ? currentSubject.color  : '#555',
+    dayIndex: now.getDay(),
+    date:     now.toLocaleDateString('en-IE',{weekday:'short',month:'short',day:'numeric'}),
+    ts:       Date.now(),
+    hour:     now.getHours(),
+  };
+  laps.push(entry); saveSession(entry);
+});
+
+/* ════ LOG ════ */
+document.getElementById('btn-log').addEventListener('click', () => {
+  const totalElapsed = appMode === 'tm' ? fillElapsedMs : elapsed;
+  const logMs = totalElapsed - subjectStartElapsed;
+  if (!logMs || logMs < 1000) { showToast('Nothing to log yet'); return; }
+  const now = new Date();
+  saveSession({
+    ms:       logMs,
+    subject:  currentSubject ? currentSubject.name  : 'General',
+    color:    currentSubject ? currentSubject.color  : '#555',
+    dayIndex: now.getDay(),
+    date:     now.toLocaleDateString('en-IE',{weekday:'short',month:'short',day:'numeric'}),
+    ts:       Date.now(),
+    hour:     now.getHours(),
+  });
+  subjectStartElapsed = totalElapsed;
+  const subj = currentSubject ? currentSubject.name : 'General';
+  showToast(`<span class="toast-accent">✓</span> Logged ${fmt(logMs)} · ${subj}`);
+});
+
+/* ════ RESET ════ */
+document.getElementById('btn-reset').addEventListener('click', resetAll);
+
+/* ════ NAVIGATION ════ */
+document.getElementById('btn-stats').addEventListener('click', () => {
+  window._closeOrbit && window._closeOrbit();
+  document.body.classList.add('stats-open');
+  const mp = document.getElementById('page-main');
+  const sp = document.getElementById('page-stats');
+  mp.classList.add('hidden-left');
+  sp.classList.remove('hidden');
+  sp.scrollTop = 0;
+  requestAnimationFrame(() => requestAnimationFrame(() => renderStats()));
+});
+document.getElementById('btn-back').addEventListener('click', () => {
+  document.body.classList.remove('stats-open');
+  const mp = document.getElementById('page-main');
+  const sp = document.getElementById('page-stats');
+  sp.classList.add('hidden');
+  mp.classList.remove('hidden', 'hidden-left');
+});
+
+/* ════ STATS ════ */
+function renderStats() {
+  const sessions = loadSessions();
+  renderInsights(sessions);
+  renderWeekChart(sessions);
+  renderTODChart(sessions);
+  renderSubjectBreakdown(sessions);
+  renderPatterns(sessions);
+  renderLog(sessions);
+}
+
+function renderInsights(sessions) {
+  const el = document.getElementById('insight-row');
+  el.innerHTML = '';
+  if (!sessions.length) {
+    el.innerHTML = '<p class="empty-note">No sessions yet — start the timer!</p>'; return;
+  }
+  const totalMs = sessions.reduce((a,s) => a+s.ms, 0);
+  const avgMs   = totalMs / sessions.length;
+  const bestMs  = Math.max(...sessions.map(s => s.ms));
+
+  // Streak: consecutive calendar days with at least one session
+  const daySet = new Set(sessions.map(s => {
+    const d = new Date(s.ts); d.setHours(0,0,0,0); return d.toDateString();
+  }));
+  let streak = 0, check = new Date(); check.setHours(0,0,0,0);
+  while (daySet.has(check.toDateString())) { streak++; check.setDate(check.getDate()-1); }
+
+  [
+    {lbl:'Total time',   val:fmtHm(totalMs), sub:`${sessions.length} sessions`},
+    {lbl:'Best session', val:fmt(bestMs),     sub:'longest lap'},
+    {lbl:'Avg session',  val:fmt(avgMs),      sub:'per lap'},
+    {lbl:'Day streak',   val:streak+'d',      sub:'consecutive days'},
+  ].forEach(c => {
+    const div = document.createElement('div');
+    div.className = 'insight-card';
+    div.innerHTML = `<div class="ic-lbl">${c.lbl}</div><div class="ic-val">${c.val}</div><div class="ic-sub">${c.sub}</div>`;
+    el.appendChild(div);
+  });
+}
+
+/* ── Shared chart drawing helper ── */
+function drawBars(canvas, labels, values, colors, chartH, barMaxH) {
+  const dpr = window.devicePixelRatio || 1;
+  const cssW = canvas.parentElement.offsetWidth || 640;
+  canvas.style.width  = cssW+'px';
+  canvas.style.height = chartH+'px';
+  canvas.width  = cssW * dpr;
+  canvas.height = chartH * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, cssW, chartH);
+
+  const n    = labels.length;
+  const pad  = 28;
+  const step = (cssW - pad*2) / n;
+  const barW = Math.max(Math.floor(step * 0.55), 4);
+  const max  = Math.max(...values, 1);
+  const baseY = barMaxH + 18;
+
+  values.forEach((v, i) => {
+    const bh = v > 0 ? Math.max((v/max)*barMaxH, 4) : 2;
+    const x  = pad + i*step + step/2 - barW/2;
+    const y  = baseY - bh;
+    const col = Array.isArray(colors) ? colors[i] : colors;
+
+    // Bar fill
+    if (v > 0) {
+      const grad = ctx.createLinearGradient(x, y, x, y+bh);
+      grad.addColorStop(0, col+'cc');
+      grad.addColorStop(1, col+'33');
+      ctx.fillStyle = grad;
+    } else {
+      ctx.fillStyle = '#0c0c0c';
+    }
+    const r = Math.min(4, barW/2);
+    ctx.beginPath();
+    ctx.moveTo(x+r,y); ctx.lineTo(x+barW-r,y);
+    ctx.quadraticCurveTo(x+barW,y,x+barW,y+r);
+    ctx.lineTo(x+barW,y+bh); ctx.lineTo(x,y+bh);
+    ctx.lineTo(x,y+r); ctx.quadraticCurveTo(x,y,x+r,y);
+    ctx.fill();
+
+    // Value label
+    if (v > 0) {
+      ctx.fillStyle = col+'99';
+      ctx.font = '600 9px Outfit, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(fmtHm(v), x+barW/2, y-5);
+    }
+
+    // Axis label
+    ctx.fillStyle = '#666';
+    ctx.font = '600 10px Outfit, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(labels[i], x+barW/2, baseY+18);
+  });
+}
+
+function renderWeekChart(sessions) {
+  const today = new Date().getDay();
+  const weekStart = new Date();
+  weekStart.setDate(weekStart.getDate() - ((weekStart.getDay()+6)%7));
+  weekStart.setHours(0,0,0,0);
+
+  const thisWeek = sessions.filter(s => new Date(s.ts) >= weekStart);
+  const totals   = {}; DAY_ORDER.forEach(d => totals[d] = 0);
+  thisWeek.forEach(s => { totals[s.dayIndex] = (totals[s.dayIndex]||0)+s.ms; });
+
+  drawBars(
+    document.getElementById('chart-week'),
+    DAY_ORDER.map(d => DAYS[d]),
+    DAY_ORDER.map(d => totals[d]),
+    DAY_ORDER.map(d => d === today ? '#a855f7' : '#5b21b6'),
+    160, 100
+  );
+}
+
+function renderTODChart(sessions) {
+  const b = [0,0,0,0];
+  sessions.forEach(s => {
+    const h = s.hour ?? 12;
+    if      (h>=5&&h<12) b[0]+=s.ms;
+    else if (h>=12&&h<17) b[1]+=s.ms;
+    else if (h>=17&&h<21) b[2]+=s.ms;
+    else                  b[3]+=s.ms;
+  });
+  drawBars(
+    document.getElementById('chart-tod'),
+    ['Morning','Afternoon','Evening','Night'],
+    b,
+    ['#fbbf24','#f87171','#a855f7','#60a5fa'],
+    110, 65
+  );
+}
+
+function renderSubjectBreakdown(sessions) {
+  const el = document.getElementById('subj-breakdown');
+  el.innerHTML = '';
+  if (!sessions.length) { el.innerHTML = '<div class="empty-note">No data yet.</div>'; return; }
+
+  const totals = {};
+  sessions.forEach(s => { totals[s.subject] = (totals[s.subject]||0)+s.ms; });
+  const entries = Object.entries(totals).sort((a,b)=>b[1]-a[1]);
+  const maxMs   = entries[0][1];
+
+  entries.forEach(([name,ms]) => {
+    const subj  = SUBJECTS.find(s=>s.name===name);
+    const color = subj ? subj.color : '#555';
+    const pct   = Math.round((ms/maxMs)*100);
+    const row   = document.createElement('div');
+    row.className = 'subj-row';
+    row.innerHTML = `
+      <div class="subj-row-dot"  style="background:${color}"></div>
+      <div class="subj-row-name">${name}</div>
+      <div class="subj-row-bar"><div class="subj-row-fill" style="width:${pct}%;background:${color}55"></div></div>
+      <div class="subj-row-time">${fmtHm(ms)}</div>`;
+    el.appendChild(row);
+  });
+}
+
+function renderPatterns(sessions) {
+  const el = document.getElementById('patterns');
+  el.innerHTML = '';
+  if (sessions.length < 3) {
+    el.innerHTML = '<div class="empty-note">Log more sessions to unlock patterns.</div>'; return;
+  }
+
+  // Best day
+  const dt = {}; sessions.forEach(s => { dt[s.dayIndex]=(dt[s.dayIndex]||0)+s.ms; });
+  const bestDay  = Object.entries(dt).sort((a,b)=>b[1]-a[1])[0];
+
+  // Best subject
+  const st = {}; sessions.forEach(s => { st[s.subject]=(st[s.subject]||0)+s.ms; });
+  const bestSubj = Object.entries(st).sort((a,b)=>b[1]-a[1])[0];
+
+  // Time of day
+  const tod = [0,0,0,0];
+  sessions.forEach(s => {
+    const h = s.hour??12;
+    if (h>=5&&h<12) tod[0]+=s.ms; else if (h>=12&&h<17) tod[1]+=s.ms;
+    else if (h>=17&&h<21) tod[2]+=s.ms; else tod[3]+=s.ms;
+  });
+  const todLbls  = ['Morning','Afternoon','Evening','Night'];
+  const bestTOD  = todLbls[tod.indexOf(Math.max(...tod))];
+  const avgMs    = sessions.reduce((a,s)=>a+s.ms,0)/sessions.length;
+  const totalMs  = sessions.reduce((a,s)=>a+s.ms,0);
+
+  // Streak
+  const daySet = new Set(sessions.map(s=>{ const d=new Date(s.ts);d.setHours(0,0,0,0);return d.toDateString(); }));
+  let streak=0,chk=new Date();chk.setHours(0,0,0,0);
+  while(daySet.has(chk.toDateString())){streak++;chk.setDate(chk.getDate()-1);}
+
+  // Most consistent subject (most sessions, not most time)
+  const sc={}; sessions.forEach(s=>{sc[s.subject]=(sc[s.subject]||0)+1;});
+  const mostCons = Object.entries(sc).sort((a,b)=>b[1]-a[1])[0];
+
+  const chips = [
+    {lbl:'Most productive day', val: DAYS[bestDay[0]]},
+    {lbl:'Top subject by time', val: bestSubj[0]},
+    {lbl:'Most sessions',       val: mostCons[0]},
+    {lbl:'Preferred time',      val: bestTOD},
+    {lbl:'Average session',     val: fmt(avgMs)},
+    {lbl:'Total studied',       val: fmtHm(totalMs)},
+    streak > 1 ? {lbl:'Current streak', val: streak+' days'} : null,
+  ].filter(Boolean);
+
+  chips.forEach(c => {
+    const chip = document.createElement('div');
+    chip.className = 'pchip';
+    chip.innerHTML = `${c.lbl} — <strong>${c.val}</strong>`;
+    el.appendChild(chip);
+  });
+}
+
+function deleteSession(ts) {
+  if (!confirm('Delete this session?')) return;
+  const sessions = loadSessions().filter(s => s.ts !== ts);
+  localStorage.setItem(SK, JSON.stringify(sessions));
+  renderStats();
+}
+
+function renderLog(sessions) {
+  const tbody = document.getElementById('log-tbody');
+  tbody.innerHTML = '';
+  if (!sessions.length) {
+    tbody.innerHTML = '<tr><td colspan="4" class="empty-note" style="text-align:center;">No sessions yet.</td></tr>'; return;
+  }
+  sessions.slice(0,60).forEach(s => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td style="color:${s.color}">${s.subject}</td>
+      <td>${s.date}</td>
+      <td>${fmt(s.ms)}</td>
+      <td><button class="btn-delete-session" title="Delete session">✕</button></td>`;
+    tr.querySelector('.btn-delete-session').addEventListener('click', () => deleteSession(s.ts));
+    tbody.appendChild(tr);
+  });
+}
+
+/* ════ EXCEL EXPORT ════ */
+document.getElementById('btn-export').addEventListener('click', () => {
+  const sessions = loadSessions();
+  if (!sessions.length) { alert('No sessions to export yet.'); return; }
+
+  const todLabel = h => {
+    if (h>=5&&h<12)  return 'Morning';
+    if (h>=12&&h<17) return 'Afternoon';
+    if (h>=17&&h<21) return 'Evening';
+    return 'Night';
+  };
+
+  const wb = XLSX.utils.book_new();
+
+  /* Sheet 1 — Individual Sessions */
+  const ws1 = XLSX.utils.json_to_sheet(sessions.map(s => ({
+    'Date':            s.date,
+    'Day':             DAYS[s.dayIndex],
+    'Time of Day':     todLabel(s.hour ?? 12),
+    'Subject':         s.subject,
+    'Duration (min)':  +(s.ms/60000).toFixed(2),
+    'Duration (hh:mm)':fmt(s.ms),
+    'Timestamp':       new Date(s.ts).toLocaleString('en-IE'),
+  })));
+  XLSX.utils.book_append_sheet(wb, ws1, 'Sessions');
+
+  /* Sheet 2 — By Subject */
+  const subT = {}; sessions.forEach(s => { subT[s.subject]=(subT[s.subject]||0)+s.ms; });
+  const ws2 = XLSX.utils.json_to_sheet(
+    Object.entries(subT).sort((a,b)=>b[1]-a[1]).map(([subj,ms]) => ({
+      'Subject':          subj,
+      'Total (min)':      +(ms/60000).toFixed(2),
+      'Total (formatted)':fmtHm(ms),
+      'Sessions':         sessions.filter(s=>s.subject===subj).length,
+    }))
+  );
+  XLSX.utils.book_append_sheet(wb, ws2, 'By Subject');
+
+  /* Sheet 3 — By Day of Week */
+  const dayT = {}; sessions.forEach(s => { dayT[s.dayIndex]=(dayT[s.dayIndex]||0)+s.ms; });
+  const ws3 = XLSX.utils.json_to_sheet(
+    DAY_ORDER.map(d => ({
+      'Day':              DAYS[d],
+      'Total (min)':      +((dayT[d]||0)/60000).toFixed(2),
+      'Total (formatted)':fmtHm(dayT[d]||0),
+      'Sessions':         sessions.filter(s=>s.dayIndex===d).length,
+    }))
+  );
+  XLSX.utils.book_append_sheet(wb, ws3, 'By Day');
+
+  /* Sheet 4 — By Time of Day */
+  const todMap = {Morning:0,Afternoon:0,Evening:0,Night:0};
+  const todCnt = {Morning:0,Afternoon:0,Evening:0,Night:0};
+  sessions.forEach(s => {
+    const lbl = todLabel(s.hour??12);
+    todMap[lbl] += s.ms; todCnt[lbl]++;
+  });
+  const ws4 = XLSX.utils.json_to_sheet(
+    ['Morning','Afternoon','Evening','Night'].map(lbl => ({
+      'Time of Day':      lbl,
+      'Total (min)':      +(todMap[lbl]/60000).toFixed(2),
+      'Total (formatted)':fmtHm(todMap[lbl]),
+      'Sessions':         todCnt[lbl],
+    }))
+  );
+  XLSX.utils.book_append_sheet(wb, ws4, 'By Time of Day');
+
+  XLSX.writeFile(wb, 'study-sessions.xlsx');
+});
+
+/* ════ CLEAR DATA ════ */
+document.getElementById('btn-clear-data').addEventListener('click', () => {
+  if (!confirm('Clear all session data? This cannot be undone.')) return;
+  localStorage.removeItem(SK);
+  renderStats();
+});
+
+/* ════════════════════════════════════════════
+   MANUAL ENTRY PANEL
+   ════════════════════════════════════════════ */
+let mpSelectedSubject = null;
+
+function openManualPanel() {
+  // Set date default to today
+  const today = new Date().toISOString().split('T')[0];
+  document.getElementById('mp-date').value = today;
+
+  // Build subject buttons
+  const wrap = document.getElementById('mp-subjects');
+  wrap.innerHTML = '';
+  mpSelectedSubject = null;
+
+  // Add "General" option first
+  const genBtn = document.createElement('button');
+  genBtn.className = 'mp-subj-btn active';
+  genBtn.innerHTML = `<span style="width:6px;height:6px;border-radius:2px;background:#555;flex-shrink:0;display:inline-block"></span>General`;
+  genBtn.dataset.name = 'General';
+  genBtn.dataset.color = '#555';
+  genBtn.addEventListener('click', () => selectMpSubject(null, genBtn));
+  wrap.appendChild(genBtn);
+  mpSelectedSubject = null; // General selected by default
+
+  SUBJECTS.forEach(s => {
+    const b = document.createElement('button');
+    b.className = 'mp-subj-btn';
+    b.innerHTML = `<span style="width:6px;height:6px;border-radius:2px;background:${s.color};flex-shrink:0;display:inline-block"></span>${s.name}`;
+    b.dataset.name  = s.name;
+    b.dataset.color = s.color;
+    b.addEventListener('click', () => selectMpSubject(s, b));
+    wrap.appendChild(b);
+  });
+
+  document.getElementById('manual-panel').classList.add('open');
+  document.getElementById('manual-scrim').classList.add('open');
+}
+
+function selectMpSubject(subj, btn) {
+  mpSelectedSubject = subj;
+  document.querySelectorAll('.mp-subj-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  // Update CSS accent to match selection for the save button glow
+  if (subj) {
+    document.getElementById('manual-panel').style.setProperty('--accent', subj.color);
+    document.getElementById('manual-panel').style.setProperty('--mid', subj.mid);
+    document.getElementById('manual-panel').style.setProperty('--dim', subj.dim);
+  } else {
+    document.getElementById('manual-panel').style.removeProperty('--accent');
+    document.getElementById('manual-panel').style.removeProperty('--mid');
+    document.getElementById('manual-panel').style.removeProperty('--dim');
+  }
+}
+
+function closeManualPanel() {
+  document.getElementById('manual-panel').classList.remove('open');
+  document.getElementById('manual-scrim').classList.remove('open');
+}
+
+document.getElementById('btn-add-session').addEventListener('click', openManualPanel);
+document.getElementById('mp-close').addEventListener('click', closeManualPanel);
+document.getElementById('manual-scrim').addEventListener('click', closeManualPanel);
+
+document.getElementById('mp-save').addEventListener('click', () => {
+  const h   = parseInt(document.getElementById('mp-hours').value) || 0;
+  const m   = parseInt(document.getElementById('mp-min').value)   || 0;
+  const s   = parseInt(document.getElementById('mp-sec').value)   || 0;
+  const ms  = (h * 3600 + m * 60 + s) * 1000;
+
+  if (ms < 1000) { showToast('Please enter a duration of at least 1 second'); return; }
+
+  const dateStr  = document.getElementById('mp-date').value;
+  const timeStr  = document.getElementById('mp-time').value || '09:00';
+  if (!dateStr)  { showToast('Please pick a date'); return; }
+
+  const [yr, mo, dy] = dateStr.split('-').map(Number);
+  const [hr, mn]     = timeStr.split(':').map(Number);
+  const sessionDate  = new Date(yr, mo - 1, dy, hr, mn);
+
+  const subj  = mpSelectedSubject;
+  const entry = {
+    ms,
+    subject:  subj ? subj.name  : 'General',
+    color:    subj ? subj.color : '#555',
+    dayIndex: sessionDate.getDay(),
+    date:     sessionDate.toLocaleDateString('en-IE', {weekday:'short', month:'short', day:'numeric'}),
+    ts:       sessionDate.getTime(),
+    hour:     hr,
+  };
+
+  saveSession(entry);
+  renderStats();
+  closeManualPanel();
+  const label = subj ? subj.name : 'General';
+  showToast(`<span class="toast-accent">✓</span> Added ${fmt(ms)} · ${label}`);
+});
+
+/* ════ INIT ════ */
+buildSubjects();
+</script>
+</body>
+</html>
